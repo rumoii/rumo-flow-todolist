@@ -1,6 +1,6 @@
 # rumo-Flow-todolist
 
-简洁、专注、离线优先的桌面待办清单应用。Rumo-Flow 使用 Vue 3、TypeScript、Electron 和 SQLite 构建，界面参考 `E:\Jszc_UI\cut-ui` 的克制留白与清晰层级，帮助你把注意力放在下一件重要的事上。
+简洁、专注、离线优先的桌面待办清单应用。Rumo-Flow 使用 Vue 3、TypeScript、Electron 和 SQLite 构建，帮助你把注意力放在下一件重要的事上。
 
 [简体中文](README.md) · [English](README.en.md)
 

@@ -1,6 +1,6 @@
 # rumo-Flow-todolist
 
-A focused, offline-first desktop todo list. Rumo-Flow is built with Vue 3, TypeScript, Electron, and SQLite. Its interface takes visual cues from `E:\Jszc_UI\cut-ui`: generous whitespace, clear hierarchy, and a restrained visual language that keeps attention on the next important action.
+A focused, offline-first desktop todo list. Rumo-Flow is built with Vue 3, TypeScript, Electron, and SQLite to keep attention on the next important action.
 
 [简体中文](README.md) · [English](README.en.md)
 
