@@ -1,0 +1,54 @@
+{
+  "name": "rumo-flow-todolist",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Rumo-Flow 极简个人计划与待办",
+  "author": "Rumo",
+  "main": "out/main/main.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
+    "package": "pnpm build && electron-builder",
+    "test": "vitest run",
+    "test:integration": "vitest run tests/repository.test.ts",
+    "test:e2e": "playwright test",
+    "test:watch": "vitest",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.0.3",
+    "vue": "3.5.41"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "4.2.0",
+    "@playwright/test": "1.55.0",
+    "@vue/test-utils": "2.4.6",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "24.9.0",
+    "@vitejs/plugin-vue": "6.0.8",
+    "electron": "44.0.0",
+    "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
+    "happy-dom": "18.0.1",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.6",
+    "vitest": "3.2.4",
+    "vue-tsc": "3.3.11"
+  },
+  "build": {
+    "appId": "com.rumo.flow.todolist",
+    "productName": "Rumo-Flow",
+    "artifactName": "rumo-flow-todolist-${version}-${arch}.${ext}",
+    "directories": { "output": "release" },
+    "files": ["out/**/*", "package.json"],
+    "asar": true,
+    "electronDist": "node_modules/electron/dist",
+    "electronDownload": { "mirror": "https://npmmirror.com/mirrors/electron/" },
+    "win": { "target": "nsis" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+  }
+}

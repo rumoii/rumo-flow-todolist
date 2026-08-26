@@ -1,0 +1,109 @@
+export type TaskPriority = 'none' | 'low' | 'medium' | 'high'
+export type TaskStatus = 'active' | 'completed'
+export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly'
+
+export interface TaskList {
+  id: string
+  name: string
+  color: string | null
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RecurrenceRule {
+  id: string
+  taskId: string
+  frequency: RecurrenceFrequency
+  interval: number
+  weekdays: number[]
+  monthDay?: number | null
+  endDate: string | null
+  nextDueDate: string | null
+}
+
+export interface Task {
+  id: string
+  title: string
+  listId: string | null
+  dueDate: string | null
+  priority: TaskPriority
+  notes: string
+  status: TaskStatus
+  sortOrder: number
+  parentTaskId: string | null
+  recurrenceRuleId: string | null
+  generatedFromTaskId?: string | null
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+}
+
+export interface CreateTaskInput {
+  title: string
+  listId?: string | null
+  dueDate?: string | null
+  priority?: TaskPriority
+  notes?: string
+  sortOrder?: number
+  parentTaskId?: string | null
+  recurrence?: {
+    frequency: RecurrenceFrequency
+    interval?: number
+    weekdays?: number[]
+    endDate?: string | null
+  } | null
+}
+
+export type UpdateTaskInput = Partial<Omit<CreateTaskInput, 'recurrence'>> & {
+  recurrence?: CreateTaskInput['recurrence']
+}
+
+export interface TaskQuery {
+  listId?: string | null
+  status?: TaskStatus
+  dueFrom?: string
+  dueTo?: string
+  includeOverdue?: boolean
+  search?: string
+}
+
+export interface CreateTaskListInput { name: string; color?: string | null; sortOrder?: number }
+export interface UpdateTaskListInput { name?: string; color?: string | null; sortOrder?: number }
+
+export interface BackupPayload {
+  format: 'rumo-flow-backup' | 'rumo-daiban-backup'
+  version: 1
+  exportedAt: string
+  taskLists: TaskList[]
+  tasks: Task[]
+  recurrenceRules: RecurrenceRule[]
+  settings: Record<string, unknown>
+}
+
+export interface ImportResult { importedTasks: number; importedLists: number; importedRules: number }
+
+export interface TodoApi {
+  tasks: {
+    list(query?: TaskQuery): Promise<Task[]>
+    create(input: CreateTaskInput): Promise<Task>
+    update(id: string, input: UpdateTaskInput): Promise<Task>
+    complete(id: string): Promise<void>
+    restore(id: string): Promise<void>
+    remove(id: string): Promise<void>
+  }
+  lists: {
+    list(): Promise<TaskList[]>
+    create(input: CreateTaskListInput): Promise<TaskList>
+    update(id: string, input: UpdateTaskListInput): Promise<TaskList>
+    remove(id: string): Promise<void>
+  }
+  backup: {
+    export(): Promise<string | null>
+    import(payload?: BackupPayload | string): Promise<ImportResult | null>
+  }
+}
+
+declare global {
+  interface Window { todoApi: TodoApi }
+}

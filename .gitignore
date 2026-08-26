@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Electron/Vite build output
+out/
+release/
+dist/
+
+# Test and browser artifacts
+test-results/
+.playwright-mcp/
+coverage/
+
+# Local application data
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+backups/
+pre-import-*.json
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
