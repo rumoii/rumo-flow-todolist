@@ -126,11 +126,11 @@ test('pins tasks, changes priority and exposes subtasks near the top of details'
 
 test('pins and deletes a list through the three-dot menu while keeping tasks by default', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: '清单操作' }).click()
+  await page.locator('.list-items').last().getByRole('button', { name: '清单操作' }).click()
   await page.getByRole('button', { name: '置顶清单' }).click()
   await expect(page.getByText('置顶', { exact: true }).first()).toBeVisible()
 
-  await page.getByRole('button', { name: '清单操作' }).click()
+  await page.locator('.list-items').first().getByRole('button', { name: '清单操作' }).click()
   await page.getByRole('button', { name: '删除清单' }).click()
   await expect(page.getByRole('heading', { name: /删除清单/ })).toBeVisible()
   await page.getByRole('button', { name: '确认删除' }).click()
@@ -151,4 +151,24 @@ test('drags a task into the pin zone and reorders custom lists', async ({ page }
   const workRow = page.locator('.list-row').filter({ hasText: '工作' })
   await personalRow.dragTo(workRow)
   await expect(page.locator('.list-name').first()).toHaveText('个人')
+})
+
+test('uses unified motion tokens and honors reduced-motion preferences', async ({ page }) => {
+  await page.goto('/')
+  const motion = await page.locator('html').evaluate((element) => {
+    const styles = getComputedStyle(element)
+    return {
+      base: styles.getPropertyValue('--motion-base').trim(),
+      smooth: styles.getPropertyValue('--motion-smooth').trim(),
+    }
+  })
+  expect(motion.base).toContain('300ms')
+  expect(motion.smooth).toContain('cubic-bezier(.23,1,.32,1)')
+
+  await page.getByRole('button', { name: '即将到期' }).click()
+  await expect(page.getByRole('heading', { name: '即将到期' })).toBeVisible()
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const reducedDuration = await page.locator('.primary-action').evaluate((element) => getComputedStyle(element).transitionDuration)
+  expect(Number.parseFloat(reducedDuration)).toBeLessThanOrEqual(0.00001)
 })

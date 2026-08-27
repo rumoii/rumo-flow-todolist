@@ -6,6 +6,7 @@ import { registerIpcHandlers } from './ipc'
 import { loadWindowState, trackWindowState } from './window-state'
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
+const windowIconPath = app.isPackaged ? path.join(process.resourcesPath, 'icon.ico') : path.join(currentDirectory, '../../build/icon.ico')
 
 function createWindow(): BrowserWindow {
   const state = loadWindowState()
@@ -16,6 +17,7 @@ function createWindow(): BrowserWindow {
     show: false,
     backgroundColor: '#F8F8F8',
     title: 'Rumo-Flow',
+    icon: windowIconPath,
     webPreferences: {
       preload: path.join(currentDirectory, '../preload/preload.mjs'),
       contextIsolation: true,

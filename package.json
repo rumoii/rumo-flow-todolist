@@ -1,6 +1,6 @@
 {
   "name": "rumo-flow-todolist",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Rumo-Flow 极简个人计划与待办",
@@ -45,10 +45,11 @@
     "artifactName": "rumo-flow-todolist-${version}-${arch}.${ext}",
     "directories": { "output": "release" },
     "files": ["out/**/*", "package.json"],
+    "extraResources": [{ "from": "build/icon.ico", "to": "icon.ico" }],
     "asar": true,
     "electronDist": "node_modules/electron/dist",
     "electronDownload": { "mirror": "https://npmmirror.com/mirrors/electron/" },
-    "win": { "target": "nsis" },
+    "win": { "target": "nsis", "icon": "build/icon.ico" },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
   }
 }

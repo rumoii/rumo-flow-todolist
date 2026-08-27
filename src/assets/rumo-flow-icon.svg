@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Rumo-Flow 流动勾线图标</title>
+  <desc id="desc">紫色圆角方块中，一条白色连续曲线向右上方收束成勾。</desc>
+  <rect width="512" height="512" rx="116" fill="#856AF9"/>
+  <path
+    d="M92 275
+       C132 235 175 236 211 264
+       C246 291 258 328 289 328
+       C326 328 346 276 382 235
+       L420 194"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="31"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+</svg>
