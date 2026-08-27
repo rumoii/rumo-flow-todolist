@@ -7,6 +7,7 @@ export interface TaskList {
   name: string
   color: string | null
   sortOrder: number
+  isPinned: boolean
   createdAt: string
   updatedAt: string
 }
@@ -31,6 +32,7 @@ export interface Task {
   notes: string
   status: TaskStatus
   sortOrder: number
+  isPinned: boolean
   parentTaskId: string | null
   recurrenceRuleId: string | null
   generatedFromTaskId?: string | null
@@ -46,6 +48,7 @@ export interface CreateTaskInput {
   priority?: TaskPriority
   notes?: string
   sortOrder?: number
+  isPinned?: boolean
   parentTaskId?: string | null
   recurrence?: {
     frequency: RecurrenceFrequency
@@ -68,8 +71,8 @@ export interface TaskQuery {
   search?: string
 }
 
-export interface CreateTaskListInput { name: string; color?: string | null; sortOrder?: number }
-export interface UpdateTaskListInput { name?: string; color?: string | null; sortOrder?: number }
+export interface CreateTaskListInput { name: string; color?: string | null; sortOrder?: number; isPinned?: boolean }
+export interface UpdateTaskListInput { name?: string; color?: string | null; sortOrder?: number; isPinned?: boolean }
 
 export interface BackupPayload {
   format: 'rumo-flow-backup' | 'rumo-daiban-backup'
@@ -91,12 +94,14 @@ export interface TodoApi {
     complete(id: string): Promise<void>
     restore(id: string): Promise<void>
     remove(id: string): Promise<void>
+    reorder(ids: string[]): Promise<void>
   }
   lists: {
     list(): Promise<TaskList[]>
     create(input: CreateTaskListInput): Promise<TaskList>
     update(id: string, input: UpdateTaskListInput): Promise<TaskList>
-    remove(id: string): Promise<void>
+    remove(id: string, options?: { taskPolicy?: 'keep' | 'delete' }): Promise<void>
+    reorder(ids: string[]): Promise<void>
   }
   backup: {
     export(): Promise<string | null>

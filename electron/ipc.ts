@@ -15,6 +15,17 @@ function object<T>(value: unknown, field: string): T {
   return value as T
 }
 
+function ids(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw new Error(`${field} 格式错误`)
+  return value
+}
+
+function taskPolicy(value: unknown): 'keep' | 'delete' {
+  if (value === undefined) return 'keep'
+  if (value !== 'keep' && value !== 'delete') throw new Error('任务处理策略无效')
+  return value
+}
+
 function parseBackup(input: BackupPayload | string): BackupPayload {
   if (typeof input === 'string') return JSON.parse(input) as BackupPayload
   return object<BackupPayload>(input, '备份数据')
@@ -27,10 +38,12 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('tasks:complete', (_event, taskId) => repository.completeTask(text(taskId, '任务编号')))
   ipcMain.handle('tasks:restore', (_event, taskId) => repository.restoreTask(text(taskId, '任务编号')))
   ipcMain.handle('tasks:remove', (_event, taskId) => repository.removeTask(text(taskId, '任务编号')))
+  ipcMain.handle('tasks:reorder', (_event, taskIds) => repository.reorderTasks(ids(taskIds, '任务顺序')))
   ipcMain.handle('lists:list', () => repository.listLists())
   ipcMain.handle('lists:create', (_event, input) => repository.createList(object<CreateTaskListInput>(input, '清单')))
   ipcMain.handle('lists:update', (_event, listId, input) => repository.updateList(text(listId, '清单编号'), object<UpdateTaskListInput>(input, '清单')))
-  ipcMain.handle('lists:remove', (_event, listId) => repository.removeList(text(listId, '清单编号')))
+  ipcMain.handle('lists:remove', (_event, listId, options) => repository.removeList(text(listId, '清单编号'), taskPolicy(object<{ taskPolicy?: unknown }>(options ?? {}, '删除选项').taskPolicy)))
+  ipcMain.handle('lists:reorder', (_event, listIds) => repository.reorderLists(ids(listIds, '清单顺序')))
   ipcMain.handle('backup:export', async () => {
     const payload = repository.exportBackup()
     const result = await dialog.showSaveDialog({ title: '导出 Rumo-Flow 备份', defaultPath: `rumo-flow-${payload.exportedAt.slice(0, 10)}.json`, filters: [{ name: 'JSON 备份', extensions: ['json'] }] })

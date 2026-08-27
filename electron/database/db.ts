@@ -88,6 +88,15 @@ function migrate(database: Database.Database): void {
       database.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(3, new Date().toISOString())
     })()
   }
+  if ((applied?.version ?? 0) < 4) {
+    database.transaction(() => {
+      database.exec(`
+        ALTER TABLE tasks ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE task_lists ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0;
+      `)
+      database.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(4, new Date().toISOString())
+    })()
+  }
 }
 
 export function closeDatabase(): void {

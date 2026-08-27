@@ -5,8 +5,8 @@ test.beforeEach(async ({ page }) => {
     const now = new Date()
     const today = now.toISOString().slice(0, 10)
     const timestamp = now.toISOString()
-    const lists = [{ id: 'list-work', name: '工作', color: '#856AF9', sortOrder: 0, createdAt: timestamp, updatedAt: timestamp }]
-    const tasks = [{ id: 'seed-task', title: '验收初始任务', listId: 'list-work', dueDate: today, priority: 'high', notes: '浏览器验收', status: 'active', sortOrder: 0, parentTaskId: null, recurrenceRuleId: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null }]
+    const lists = [{ id: 'list-work', name: '工作', color: '#856AF9', sortOrder: 0, isPinned: false, createdAt: timestamp, updatedAt: timestamp }]
+    const tasks = [{ id: 'seed-task', title: '验收初始任务', listId: 'list-work', dueDate: today, priority: 'high', notes: '浏览器验收', status: 'active', sortOrder: 0, isPinned: false, parentTaskId: null, recurrenceRuleId: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null }]
     const byId = (id: string) => tasks.find((task) => task.id === id)
 
     Object.defineProperty(window, 'todoApi', {
@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
         tasks: {
           list: async () => tasks.map((task) => ({ ...task })),
           create: async (input: Record<string, unknown>) => {
-            const task = { id: crypto.randomUUID(), status: 'active', sortOrder: tasks.length, parentTaskId: null, recurrenceRuleId: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null, notes: '', priority: 'none', listId: null, dueDate: null, ...input }
+            const task = { id: crypto.randomUUID(), status: 'active', sortOrder: tasks.length, isPinned: false, parentTaskId: null, recurrenceRuleId: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null, notes: '', priority: 'none', listId: null, dueDate: null, ...input }
             tasks.push(task as typeof tasks[number])
             return { ...task }
           },
@@ -37,16 +37,29 @@ test.beforeEach(async ({ page }) => {
             const index = tasks.findIndex((task) => task.id === id)
             if (index >= 0) tasks.splice(index, 1)
           },
+          reorder: async (ids: string[]) => ids.forEach((id, index) => { const task = byId(id); if (task) task.sortOrder = index }),
         },
         lists: {
           list: async () => lists.map((list) => ({ ...list })),
           create: async (input: Record<string, unknown>) => {
-            const list = { id: crypto.randomUUID(), color: '#856AF9', sortOrder: lists.length, createdAt: timestamp, updatedAt: timestamp, ...input }
+            const list = { id: crypto.randomUUID(), color: '#856AF9', sortOrder: lists.length, isPinned: false, createdAt: timestamp, updatedAt: timestamp, ...input }
             lists.push(list as typeof lists[number])
             return { ...list }
           },
-          update: async () => ({ ...lists[0] }),
-          remove: async () => undefined,
+          update: async (id: string, input: Record<string, unknown>) => {
+            const list = lists.find((item) => item.id === id)
+            if (!list) throw new Error('missing list')
+            Object.assign(list, input, { updatedAt: new Date().toISOString() })
+            return { ...list }
+          },
+          remove: async (id: string, options: { taskPolicy?: 'keep' | 'delete' } = {}) => {
+            if (options.taskPolicy === 'delete') {
+              for (let index = tasks.length - 1; index >= 0; index -= 1) if (tasks[index].listId === id) tasks.splice(index, 1)
+            } else tasks.forEach((task) => { if (task.listId === id) task.listId = null })
+            const index = lists.findIndex((list) => list.id === id)
+            if (index >= 0) lists.splice(index, 1)
+          },
+          reorder: async (ids: string[]) => ids.forEach((id, index) => { const list = lists.find((item) => item.id === id); if (list) list.sortOrder = index }),
         },
         backup: { export: async () => ({}), import: async () => ({ importedTasks: 0, importedLists: 0, importedRules: 0 }) },
       },
@@ -90,4 +103,52 @@ test('keeps the core layout usable at a narrow desktop window', async ({ page })
   await expect(page.getByPlaceholder('搜索任务')).toBeVisible()
   const bodyWidth = await page.locator('body').evaluate((element) => element.scrollWidth)
   expect(bodyWidth).toBeLessThanOrEqual(1024)
+})
+
+test('pins tasks, changes priority and exposes subtasks near the top of details', async ({ page }) => {
+  await page.goto('/')
+  const taskRow = page.locator('.task-row').filter({ hasText: '验收初始任务' })
+  await taskRow.getByRole('button', { name: '任务操作' }).click()
+  await page.getByRole('button', { name: '置顶任务' }).click()
+  await expect(page.locator('.pinned-zone').getByText('验收初始任务')).toBeVisible()
+
+  await page.locator('.pinned-zone').getByRole('button', { name: '任务操作' }).click()
+  await page.getByRole('button', { name: /P3/ }).click()
+  await expect(page.locator('.pinned-zone').getByText('P3')).toBeVisible()
+
+  await page.locator('.pinned-zone').getByText('验收初始任务').click()
+  const subtaskComposer = page.getByPlaceholder('添加子任务…')
+  await expect(subtaskComposer).toBeVisible()
+  const composerBox = await subtaskComposer.boundingBox()
+  const listFieldBox = await page.getByText('清单', { exact: true }).boundingBox()
+  expect(composerBox!.y).toBeLessThan(listFieldBox!.y)
+})
+
+test('pins and deletes a list through the three-dot menu while keeping tasks by default', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '清单操作' }).click()
+  await page.getByRole('button', { name: '置顶清单' }).click()
+  await expect(page.getByText('置顶', { exact: true }).first()).toBeVisible()
+
+  await page.getByRole('button', { name: '清单操作' }).click()
+  await page.getByRole('button', { name: '删除清单' }).click()
+  await expect(page.getByRole('heading', { name: /删除清单/ })).toBeVisible()
+  await page.getByRole('button', { name: '确认删除' }).click()
+  await expect(page.getByText('工作', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('验收初始任务')).toBeVisible()
+})
+
+test('drags a task into the pin zone and reorders custom lists', async ({ page }) => {
+  await page.goto('/')
+  const taskRow = page.locator('.task-row').filter({ hasText: '验收初始任务' })
+  await taskRow.dragTo(page.locator('.pinned-zone'))
+  await expect(page.locator('.pinned-zone').getByText('验收初始任务')).toBeVisible()
+
+  await page.getByRole('button', { name: '新建清单' }).click()
+  await page.getByPlaceholder('清单名称').fill('个人')
+  await page.getByPlaceholder('清单名称').press('Enter')
+  const personalRow = page.locator('.list-row').filter({ hasText: '个人' })
+  const workRow = page.locator('.list-row').filter({ hasText: '工作' })
+  await personalRow.dragTo(workRow)
+  await expect(page.locator('.list-name').first()).toHaveText('个人')
 })

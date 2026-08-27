@@ -13,6 +13,7 @@ const makeTask = (overrides: Partial<Task> = {}): Task => ({
   notes: '',
   status: 'active',
   sortOrder: 0,
+  isPinned: false,
   parentTaskId: null,
   recurrenceRuleId: null,
   createdAt: '2026-01-01T00:00:00.000Z',
@@ -26,6 +27,7 @@ const list: TaskList = {
   name: '工作',
   color: '#856AF9',
   sortOrder: 0,
+  isPinned: false,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 }
@@ -57,12 +59,14 @@ function createApi(seed: Task[] = [makeTask()]): TodoApi {
         const index = tasks.findIndex((item) => item.id === id)
         if (index >= 0) tasks.splice(index, 1)
       }),
+      reorder: vi.fn(async () => undefined),
     },
     lists: {
       list: vi.fn(async () => [list]),
       create: vi.fn(async () => list),
       update: vi.fn(async () => list),
       remove: vi.fn(async () => undefined),
+      reorder: vi.fn(async () => undefined),
     },
     backup: {
       export: vi.fn(),
@@ -118,5 +122,60 @@ describe('App critical interactions', () => {
     await completedButton!.trigger('click')
     expect(wrapper.text()).toContain('完成项')
     expect(wrapper.text()).not.toContain('进行中')
+  })
+
+  it('sets task priority and pin state from the task menu', async () => {
+    const api = createApi()
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+
+    await wrapper.find('.task-row .icon-button').trigger('click')
+    const pinButton = wrapper.findAll('.task-popup button').find((button) => button.text().includes('置顶任务'))
+    await pinButton!.trigger('click')
+    await flushPromises()
+    expect(api.tasks.update).toHaveBeenCalledWith('task-1', { isPinned: true })
+    expect(wrapper.text()).toContain('置顶')
+
+    await wrapper.find('.task-row .icon-button').trigger('click')
+    const priorityButton = wrapper.findAll('.task-popup button').find((button) => button.text().includes('P1'))
+    await priorityButton!.trigger('click')
+    await flushPromises()
+    expect(api.tasks.update).toHaveBeenCalledWith('task-1', { priority: 'high' })
+    expect(wrapper.text()).toContain('P1')
+  })
+
+  it('pins a list and deletes it with the selected task policy', async () => {
+    const api = createApi([makeTask({ listId: list.id })])
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+
+    await wrapper.find('.list-menu-button').trigger('click')
+    const pinButton = wrapper.findAll('.list-popup button').find((button) => button.text().includes('置顶清单'))
+    await pinButton!.trigger('click')
+    await flushPromises()
+    expect(api.lists.update).toHaveBeenCalledWith('list-1', { isPinned: true })
+
+    await wrapper.find('.list-menu-button').trigger('click')
+    const deleteButton = wrapper.findAll('.list-popup button').find((button) => button.text().includes('删除清单'))
+    await deleteButton!.trigger('click')
+    await wrapper.find('input[value="delete"]').setValue()
+    await wrapper.find('.list-delete-dialog .delete-button').trigger('click')
+    await flushPromises()
+    expect(api.lists.remove).toHaveBeenCalledWith('list-1', { taskPolicy: 'delete' })
+    expect(wrapper.text()).not.toContain('测试任务')
+  })
+
+  it('places the subtask composer before task fields in the detail drawer', async () => {
+    const api = createApi()
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+    await wrapper.find('.task-row').trigger('click')
+
+    const subtasks = wrapper.find('.subtasks').element
+    const firstField = wrapper.find('.field').element
+    expect(subtasks.compareDocumentPosition(firstField) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

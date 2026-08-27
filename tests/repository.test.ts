@@ -146,4 +146,55 @@ describe('Repository with an isolated SQLite database', () => {
     expect(() => repository.createTask({ title: '   ' })).toThrow('任务标题不能为空')
     expect(repository.listTasks()).toHaveLength(0)
   })
+
+  it('persists pin state and transactional task and list ordering', () => {
+    const repository = new Repository()
+    const firstList = repository.createList({ name: '一号', isPinned: true })
+    const secondList = repository.createList({ name: '二号', isPinned: true })
+    repository.reorderLists([secondList.id, firstList.id])
+    expect(repository.listLists().map((item) => [item.name, item.isPinned])).toEqual([['二号', true], ['一号', true]])
+
+    const firstTask = repository.createTask({ title: '任务一', priority: 'high', isPinned: true })
+    const secondTask = repository.createTask({ title: '任务二', priority: 'high', isPinned: true })
+    repository.reorderTasks([secondTask.id, firstTask.id])
+    expect(repository.listTasks().map((item) => [item.title, item.isPinned])).toEqual([['任务二', true], ['任务一', true]])
+  })
+
+  it('deletes a list while either keeping or deleting its tasks', () => {
+    const repository = new Repository()
+    const keepList = repository.createList({ name: '保留任务' })
+    const keptTask = repository.createTask({ title: '保留项', listId: keepList.id })
+    repository.removeList(keepList.id, 'keep')
+    expect(repository.getTask(keptTask.id).listId).toBeNull()
+
+    const deleteList = repository.createList({ name: '删除任务' })
+    const parent = repository.createTask({ title: '父任务', listId: deleteList.id })
+    repository.createTask({ title: '子任务', listId: deleteList.id, parentTaskId: parent.id })
+    const unrelated = repository.createTask({ title: '其他任务' })
+    repository.removeList(deleteList.id, 'delete')
+    expect(repository.listTasks().map((item) => item.id)).toEqual(expect.arrayContaining([keptTask.id, unrelated.id]))
+    expect(repository.listTasks().some((item) => item.id === parent.id || item.parentTaskId === parent.id)).toBe(false)
+  })
+
+  it('imports version 1 backups that do not contain pin fields', () => {
+    const repository = new Repository()
+    const list = repository.createList({ name: '旧清单', isPinned: true })
+    repository.createTask({ title: '旧任务', listId: list.id, isPinned: true })
+    const oldBackup = JSON.parse(JSON.stringify(repository.exportBackup()))
+    oldBackup.taskLists.forEach((item: Record<string, unknown>) => delete item.isPinned)
+    oldBackup.tasks.forEach((item: Record<string, unknown>) => delete item.isPinned)
+
+    repository.importBackup(oldBackup)
+    expect(repository.listLists()[0].isPinned).toBe(false)
+    expect(repository.listTasks()[0].isPinned).toBe(false)
+    expect(getDatabase().prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toEqual({ version: 4 })
+  })
+
+  it('rejects invalid persisted pin values before writing', () => {
+    const repository = new Repository()
+    expect(() => repository.createTask({ title: '错误任务', isPinned: 'yes' as unknown as boolean })).toThrow('任务置顶状态无效')
+    expect(() => repository.createList({ name: '错误清单', isPinned: 1 as unknown as boolean })).toThrow('清单置顶状态无效')
+    expect(repository.listTasks()).toHaveLength(0)
+    expect(repository.listLists()).toHaveLength(0)
+  })
 })
