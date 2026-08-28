@@ -238,6 +238,29 @@ test('uses unified motion tokens and honors reduced-motion preferences', async (
   expect(Number.parseFloat(reducedDuration)).toBeLessThanOrEqual(0.00001)
 })
 
+test('shows a readable saved-filter form and restrained select motion', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '新建筛选' }).click()
+  await expect(page.locator('.filter-field-row>span')).toHaveText(['状态', '清单', '优先级', '标签', '日期'])
+  await expect(page.getByRole('combobox', { name: '筛选状态' })).toContainText('进行中')
+  await expect(page.getByRole('combobox', { name: '筛选清单' })).toContainText('任意清单')
+  await expect(page.getByRole('combobox', { name: '筛选优先级' })).toContainText('任意优先级')
+  await expect(page.getByRole('combobox', { name: '筛选标签' })).toContainText('任意标签')
+  await expect(page.getByRole('combobox', { name: '筛选日期' })).toContainText('任意日期')
+
+  const fieldWidth = await page.getByRole('combobox', { name: '筛选状态' }).evaluate((element) => element.getBoundingClientRect().width)
+  expect(fieldWidth).toBeGreaterThan(100)
+  await page.waitForTimeout(220)
+
+  const statusField = page.getByRole('combobox', { name: '筛选状态' })
+  const before = await statusField.boundingBox()
+  await statusField.click()
+  const after = await statusField.boundingBox()
+  expect(Math.abs(after!.x - before!.x)).toBeLessThanOrEqual(0.5)
+  expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(0.5)
+  await expect(page.getByRole('listbox', { name: '筛选状态' })).toBeVisible()
+})
+
 test('renders the branded quick capture panel without overflow', async ({ page }) => {
   await page.goto('/?capture=1')
   await expect(page.locator('.capture-card')).toBeVisible()

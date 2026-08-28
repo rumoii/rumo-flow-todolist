@@ -153,7 +153,7 @@ onBeforeUnmount(() => {
       @keydown="onKeydown"
     >
       <span :class="['select-field__value', { placeholder: !selectedOption }]">{{ selectedOption?.label ?? placeholder }}</span>
-      <span class="select-field__caret" aria-hidden="true">⌄</span>
+      <span class="select-field__caret" aria-hidden="true"></span>
     </button>
     <Transition name="select-pop">
       <ul v-if="open" :id="listboxId" class="select-field__menu" role="listbox" :aria-label="ariaLabel" @click.stop>

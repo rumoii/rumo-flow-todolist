@@ -118,6 +118,36 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .composer-enter-from,
 .composer-leave-to { opacity: 0; transform: translateY(-4px) scale(.96); }
 
+.filter-composer-motion {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.filter-composer-motion > .list-composer { min-height: 0; }
+
+.filter-composer-enter-active,
+.filter-composer-leave-active {
+  overflow: hidden;
+  transition: grid-template-rows 180ms ease, opacity 140ms ease;
+}
+
+.filter-composer-enter-from,
+.filter-composer-leave-to {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.select-pop-enter-active,
+.select-pop-leave-active {
+  transition: opacity 140ms ease-out, transform 140ms ease-out;
+}
+
+.select-pop-enter-from,
+.select-pop-leave-to { opacity: 0; transform: translateY(-2px); }
+
+.opens-up .select-pop-enter-from,
+.opens-up .select-pop-leave-to { transform: translateY(2px); }
+
 .task-popup { transform-origin: top right; animation: popup-in 220ms cubic-bezier(.08,.82,.17,1); }
 @keyframes popup-in {
   from { opacity: 0; transform: translateY(-4px) scale(.96); }

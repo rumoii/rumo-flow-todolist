@@ -13,7 +13,10 @@ const options = [
 describe('SelectField', () => {
   it('opens and emits the selected value', async () => {
     const wrapper = mount(SelectField, { props: { modelValue: null, options, ariaLabel: '任务提醒' } })
+    expect(wrapper.get('.select-field__caret').text()).toBe('')
     await wrapper.get('[role="combobox"]').trigger('click')
+    expect(wrapper.get('[role="combobox"]').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.classes()).toContain('is-open')
     expect(wrapper.get('[role="listbox"]').isVisible()).toBe(true)
     await wrapper.findAll('[role="option"]')[1].trigger('click')
     expect(wrapper.emitted('update:modelValue')).toEqual([[5]])

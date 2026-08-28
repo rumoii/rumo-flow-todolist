@@ -154,6 +154,21 @@ describe('App critical interactions', () => {
     expect(wrapper.text()).toContain('#会议')
   })
 
+  it('toggles the saved-filter composer inside its motion wrapper', async () => {
+    window.todoApi = createApi()
+    const wrapper = mount(App)
+    await flushPromises()
+
+    expect(wrapper.find('.filter-composer-motion').exists()).toBe(false)
+    await wrapper.get('[aria-label="新建筛选"]').trigger('click')
+    expect(wrapper.find('.filter-composer-motion').exists()).toBe(true)
+    expect(wrapper.findAll('.filter-composer-motion [role="combobox"]')).toHaveLength(5)
+    expect(wrapper.findAll('.filter-field-row>span').map(label => label.text())).toEqual(['状态', '清单', '优先级', '标签', '日期'])
+    expect(wrapper.findAll('.filter-field-row .select-field__value').map(value => value.text())).toEqual(['进行中', '任意清单', '任意优先级', '任意标签', '任意日期'])
+    await wrapper.get('[aria-label="新建筛选"]').trigger('click')
+    expect(wrapper.find('.filter-composer-motion').exists()).toBe(false)
+  })
+
   it('toggles completion through the checkbox and reports success', async () => {
     const api = createApi()
     window.todoApi = api
