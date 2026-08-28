@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
     const today = now.toISOString().slice(0, 10)
     const timestamp = now.toISOString()
     const lists = [{ id: 'list-work', name: '工作', color: '#856AF9', sortOrder: 0, isPinned: false, createdAt: timestamp, updatedAt: timestamp }]
-    const tasks = [{ id: 'seed-task', title: '验收初始任务', listId: 'list-work', dueDate: today, priority: 'high', notes: '浏览器验收', status: 'active', sortOrder: 0, isPinned: false, parentTaskId: null, recurrenceRuleId: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null }]
+    const tasks = [{ id: 'seed-task', title: '验收初始任务', listId: 'list-work', dueDate: today, dueTime: null, reminderMinutesBefore: null, priority: 'high', notes: '浏览器验收', status: 'active', sortOrder: 0, isPinned: false, parentTaskId: null, recurrenceRuleId: null, deletedAt: null, tags: [], createdAt: timestamp, updatedAt: timestamp, completedAt: null }]
     const byId = (id: string) => tasks.find((task) => task.id === id)
 
     Object.defineProperty(window, 'todoApi', {
@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
         tasks: {
           list: async () => tasks.map((task) => ({ ...task })),
           create: async (input: Record<string, unknown>) => {
-            const task = { id: crypto.randomUUID(), status: 'active', sortOrder: tasks.length, isPinned: false, parentTaskId: null, recurrenceRuleId: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null, notes: '', priority: 'none', listId: null, dueDate: null, ...input }
+            const task = { id: crypto.randomUUID(), status: 'active', sortOrder: tasks.length, isPinned: false, parentTaskId: null, recurrenceRuleId: null, deletedAt: null, tags: [], dueTime: null, reminderMinutesBefore: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null, notes: '', priority: 'none', listId: null, dueDate: null, ...input }
             tasks.push(task as typeof tasks[number])
             return { ...task }
           },
@@ -37,8 +37,13 @@ test.beforeEach(async ({ page }) => {
             const index = tasks.findIndex((task) => task.id === id)
             if (index >= 0) tasks.splice(index, 1)
           },
+          restoreRemoved: async () => undefined,
           reorder: async (ids: string[]) => ids.forEach((id, index) => { const task = byId(id); if (task) task.sortOrder = index }),
         },
+        tags: { list: async () => [], create: async (input: Record<string, unknown>) => ({ id: crypto.randomUUID(), color: null, createdAt: timestamp, updatedAt: timestamp, ...input }), update: async () => ({}), remove: async () => undefined },
+        filters: { list: async () => [], create: async (input: Record<string, unknown>) => ({ id: crypto.randomUUID(), sortOrder: 0, createdAt: timestamp, updatedAt: timestamp, ...input }), update: async () => ({}), remove: async () => undefined },
+        settings: { get: async () => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space' }), update: async (input: Record<string, unknown>) => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', ...input }) },
+        desktop: { status: async () => ({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: true }), openQuickCapture: async () => undefined, onFocusQuickAdd: () => () => undefined },
         lists: {
           list: async () => lists.map((list) => ({ ...list })),
           create: async (input: Record<string, unknown>) => {

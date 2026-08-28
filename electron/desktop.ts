@@ -1,0 +1,18 @@
+import { app, BrowserWindow, globalShortcut, Menu, Tray } from 'electron'
+import path from 'node:path'
+
+export class DesktopController {
+  private tray?: Tray
+  private capture?: BrowserWindow
+  private quitting = false
+  shortcutRegistered = false
+  shortcut = 'Ctrl+Alt+Space'
+  constructor(private readonly mainWindow: () => BrowserWindow | undefined, private readonly createMain: () => BrowserWindow, private readonly iconPath: string, private readonly rendererUrl: string | undefined, private readonly rendererFile: string) {}
+  start(shortcut: string): void { this.shortcut = shortcut; this.createTray(); this.registerShortcut(shortcut) }
+  private createTray(): void { this.tray = new Tray(this.iconPath); this.tray.setToolTip('Rumo-Flow'); this.tray.setContextMenu(Menu.buildFromTemplate([{ label: '显示 Rumo-Flow', click: () => this.showMain() }, { label: '新建任务', click: () => this.showCapture() }, { type: 'separator' }, { label: '退出', click: () => { this.quitting = true; app.quit() } }])); this.tray.on('double-click', () => this.showMain()) }
+  attachCloseBehavior(window: BrowserWindow): void { window.on('close', (event) => { if (!this.quitting) { event.preventDefault(); window.hide() } }) }
+  showMain(taskId?: string): void { const window = this.mainWindow() ?? this.createMain(); window.show(); window.focus(); window.webContents.send('desktop:focus-quick-add', taskId) }
+  showCapture(): void { if (!this.capture || this.capture.isDestroyed()) { this.capture = new BrowserWindow({ width: 520, height: 168, resizable: false, frame: false, show: false, alwaysOnTop: true, skipTaskbar: true, backgroundColor: '#17171c', icon: this.iconPath, webPreferences: { preload: path.join(path.dirname(this.rendererFile), '../preload/preload.mjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } }); this.capture.on('blur', () => this.capture?.hide()); if (this.rendererUrl) void this.capture.loadURL(`${this.rendererUrl}?capture=1`); else void this.capture.loadFile(this.rendererFile, { query: { capture: '1' } }) } this.capture.show(); this.capture.focus() }
+  registerShortcut(shortcut: string): void { globalShortcut.unregisterAll(); this.shortcut = shortcut; this.shortcutRegistered = globalShortcut.register(shortcut, () => this.showCapture()) }
+  dispose(): void { this.quitting = true; globalShortcut.unregisterAll(); this.tray?.destroy(); this.capture?.destroy() }
+}

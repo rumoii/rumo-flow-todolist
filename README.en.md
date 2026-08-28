@@ -6,11 +6,15 @@ A focused, offline-first desktop todo list. Rumo-Flow is built with Vue 3, TypeS
 
 ## Features
 
-- Today, upcoming, this week, completed, and custom list views
-- Quick task entry, task search, and drag-and-drop ordering
-- Due dates, none/low/medium/high priority, and notes
+- Inbox, today, upcoming, this week, completed, and custom list views
+- Quick entry, search, drag-and-drop ordering, and grouping by list, priority, or tag
+- Quick Add Magic using tokens such as `#tag`, `!p1`, `@tomorrow`, and `~list-name`
+- Due dates and times, reminders, none/low/medium/high priority, tags, and notes
 - Daily, weekly, and monthly recurring tasks with automatic next-instance generation
 - Subtasks and a task-details drawer
+- Time-limited undo after completing, restoring, or deleting tasks
+- System tray, `Ctrl+Alt+Space` global quick capture, and Windows notifications
+- Light/dark themes, comfortable/compact density, and keyboard-shortcut help
 - Local SQLite persistence; data stays on the current device by default
 - JSON backup export and restore; the current data is snapshotted before restore, and invalid imports leave existing data unchanged
 - Remembered Electron window state
@@ -44,13 +48,13 @@ pnpm package         # Build the Windows installer
 
 ## Installer
 
-The Windows installer is published as a GitHub Release instead of being committed to the source repository. The current `v0.3.1` installer is unsigned, so Windows SmartScreen may display a warning. Download it from the project Release page and verify the SHA-256 value published with the release.
+The Windows installer is published as a GitHub Release instead of being committed to the source repository. The current `v0.5.0` installer is unsigned, so Windows SmartScreen may display a warning. Download it from the project Release page and verify the SHA-256 value published with the release.
 
 ## Data and backups
 
 Application data is stored in Electron's user-data directory in a database named `rumo-daiban.sqlite`. Use “Settings & Data” inside the app to export a JSON backup; avoid copying a live SQLite file while the app is running. Before a restore, Rumo-Flow writes a snapshot to `backups/pre-import-*.json` so the previous state is retained.
 
-The current backup format is `rumo-flow-backup` v1. Historical `rumo-daiban-backup` v1 files are also accepted.
+New exports use `rumo-flow-backup` v2 and include tags and saved filters. Restore accepts both v1 and v2 backups, including historical `rumo-daiban-backup` v1 files. Existing databases are upgraded through compatible migrations when the app starts.
 
 ## Project structure
 

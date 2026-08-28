@@ -2,136 +2,94 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getDatabase } from './db'
-import type { BackupPayload, CreateTaskInput, CreateTaskListInput, RecurrenceRule, Task, TaskList, TaskQuery, UpdateTaskInput, UpdateTaskListInput } from '../../src/shared/contracts'
+import type { AppSettings, BackupPayload, CreateSavedFilterInput, CreateTagInput, CreateTaskInput, CreateTaskListInput, RecurrenceRule, SavedFilter, Tag, Task, TaskFilterCriteria, TaskList, TaskQuery, UpdateSavedFilterInput, UpdateTagInput, UpdateTaskInput, UpdateTaskListInput } from '../../src/shared/contracts'
 
-const now = () => new Date().toISOString()
-const id = () => crypto.randomUUID()
+const timestamp = () => new Date().toISOString()
+const newId = () => crypto.randomUUID()
+const reminders = [5, 15, 60, 1440]
+const defaults: AppSettings = { theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space' }
 
-function mapTask(row: any): Task {
-  return { id: row.id, title: row.title, listId: row.list_id, dueDate: row.due_date, priority: row.priority, notes: row.notes, status: row.status, sortOrder: row.sort_order, isPinned: Boolean(row.is_pinned), parentTaskId: row.parent_task_id, recurrenceRuleId: row.recurrence_rule_id, generatedFromTaskId: row.generated_from_task_id ?? null, createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at }
-}
-function mapList(row: any): TaskList { return { id: row.id, name: row.name, color: row.color, sortOrder: row.sort_order, isPinned: Boolean(row.is_pinned), createdAt: row.created_at, updatedAt: row.updated_at } }
-function mapRule(row: any): RecurrenceRule { return { id: row.id, taskId: row.task_id, frequency: row.frequency, interval: row.interval, weekdays: JSON.parse(row.weekdays), monthDay: row.month_day ?? null, endDate: row.end_date, nextDueDate: row.next_due_date } }
+const mapList = (row: any): TaskList => ({ id: row.id, name: row.name, color: row.color ?? null, sortOrder: row.sort_order, isPinned: Boolean(row.is_pinned), createdAt: row.created_at, updatedAt: row.updated_at })
+const mapTag = (row: any): Tag => ({ id: row.id, name: row.name, color: row.color ?? null, createdAt: row.created_at, updatedAt: row.updated_at })
+const mapRule = (row: any): RecurrenceRule => ({ id: row.id, taskId: row.task_id, frequency: row.frequency, interval: row.interval, weekdays: JSON.parse(row.weekdays), monthDay: row.month_day ?? null, endDate: row.end_date, nextDueDate: row.next_due_date })
+const validDate = (value?: string | null) => value == null || /^\d{4}-\d{2}-\d{2}$/.test(value)
+const validTime = (value?: string | null) => value == null || /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
 
-function nextRecurrenceDate(value: string, frequency: RecurrenceRule['frequency'], interval: number, weekdays: number[], monthDay?: number | null): string {
+function nextDate(value: string, rule: RecurrenceRule): string {
   const [year, month, day] = value.split('-').map(Number)
-  if (frequency === 'daily') { const date = new Date(Date.UTC(year, month - 1, day)); date.setUTCDate(date.getUTCDate() + interval); return date.toISOString().slice(0, 10) }
-  if (frequency === 'weekly') {
-    const date = new Date(Date.UTC(year, month - 1, day)); const selected = [...new Set(weekdays)].sort((a, b) => a - b)
-    if (selected.length === 0) date.setUTCDate(date.getUTCDate() + 7 * interval)
-    else { const current = date.getUTCDay(); const later = selected.find((weekday) => weekday > current); date.setUTCDate(date.getUTCDate() + (later === undefined ? 7 * interval - current + selected[0] : later - current)) }
-    return date.toISOString().slice(0, 10)
-  }
-  const targetMonth = month - 1 + interval; const target = new Date(Date.UTC(year, targetMonth, 1)); const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate(); return `${target.getUTCFullYear().toString().padStart(4, '0')}-${String(target.getUTCMonth() + 1).padStart(2, '0')}-${String(Math.min(monthDay ?? day, lastDay)).padStart(2, '0')}`
+  if (rule.frequency === 'daily') { const date = new Date(Date.UTC(year, month - 1, day)); date.setUTCDate(date.getUTCDate() + rule.interval); return date.toISOString().slice(0, 10) }
+  if (rule.frequency === 'weekly') { const date = new Date(Date.UTC(year, month - 1, day)); const days = [...new Set(rule.weekdays)].sort(); if (!days.length) date.setUTCDate(date.getUTCDate() + rule.interval * 7); else { const later = days.find((item) => item > date.getUTCDay()); date.setUTCDate(date.getUTCDate() + (later === undefined ? rule.interval * 7 - date.getUTCDay() + days[0] : later - date.getUTCDay())) } return date.toISOString().slice(0, 10) }
+  const date = new Date(Date.UTC(year, month - 1 + rule.interval, 1)); const last = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate(); return `${date.getUTCFullYear().toString().padStart(4, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(Math.min(rule.monthDay ?? day, last)).padStart(2, '0')}`
 }
 
 export class Repository {
+  private tagsFor(taskId: string): Tag[] { return (getDatabase().prepare('SELECT tags.* FROM tags JOIN task_tags ON task_tags.tag_id=tags.id WHERE task_tags.task_id=? ORDER BY tags.name').all(taskId) as any[]).map(mapTag) }
+  private mapTask(row: any): Task { return { id: row.id, title: row.title, listId: row.list_id, dueDate: row.due_date, dueTime: row.due_time ?? null, reminderMinutesBefore: row.reminder_minutes_before ?? null, priority: row.priority, notes: row.notes, status: row.status, sortOrder: row.sort_order, isPinned: Boolean(row.is_pinned), parentTaskId: row.parent_task_id, recurrenceRuleId: row.recurrence_rule_id, generatedFromTaskId: row.generated_from_task_id ?? null, deletedAt: row.deleted_at ?? null, tags: this.tagsFor(row.id), createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at } }
+  private validateTask(input: Partial<CreateTaskInput>): void { if (!validDate(input.dueDate)) throw new Error('日期格式无效'); if (!validTime(input.dueTime)) throw new Error('时间格式无效'); if (input.reminderMinutesBefore != null && !reminders.includes(input.reminderMinutesBefore)) throw new Error('提醒时间无效'); if (input.reminderMinutesBefore != null && !input.dueDate) throw new Error('提醒任务必须设置日期') }
+  private validateTagIds(tagIds?: string[]): void { if (!tagIds?.length) return; const found = getDatabase().prepare(`SELECT id FROM tags WHERE id IN (${tagIds.map(() => '?').join(',')})`).all(...tagIds) as any[]; if (new Set(found.map((item) => item.id)).size !== new Set(tagIds).size) throw new Error('任务标签不存在') }
+  private saveTags(taskId: string, tagIds: string[] = []): void { const db = getDatabase(); db.prepare('DELETE FROM task_tags WHERE task_id=?').run(taskId); const insert = db.prepare('INSERT INTO task_tags(task_id,tag_id) VALUES (?,?)'); [...new Set(tagIds)].forEach((tagId) => insert.run(taskId, tagId)) }
+
   listTasks(query: TaskQuery = {}): Task[] {
-    const where: string[] = []
-    const params: Record<string, unknown> = {}
-    if (query.listId !== undefined) { where.push('list_id IS :listId'); params.listId = query.listId }
-    if (query.status) { where.push('status = :status'); params.status = query.status }
-    if (query.dueFrom) { where.push('due_date >= :dueFrom'); params.dueFrom = query.dueFrom }
-    if (query.dueTo) { where.push('due_date <= :dueTo'); params.dueTo = query.dueTo }
-    if (!query.includeOverdue && query.dueFrom) where.push('(status = \'completed\' OR due_date IS NULL OR due_date >= :today)')
-    if (query.search) { where.push('(title LIKE :search OR notes LIKE :search)'); params.search = `%${query.search}%` }
-    const sql = `SELECT * FROM tasks ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY status ASC, CASE WHEN due_date IS NULL THEN 1 ELSE 0 END, due_date ASC, sort_order ASC, created_at ASC`
-    params.today = new Date().toISOString().slice(0, 10)
-    return (getDatabase().prepare(sql).all(params) as any[]).map(mapTask)
+    const clauses = query.includeDeleted ? [] : ['tasks.deleted_at IS NULL']; const params: Record<string, unknown> = { today: new Date().toISOString().slice(0, 10), next7: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10) }
+    if (query.listId !== undefined) { clauses.push('tasks.list_id IS :listId'); params.listId = query.listId }
+    if (query.status && query.status !== 'all') { clauses.push('tasks.status=:status'); params.status = query.status }
+    if (query.dueFrom) { clauses.push('tasks.due_date>=:dueFrom'); params.dueFrom = query.dueFrom }
+    if (query.dueTo) { clauses.push('tasks.due_date<=:dueTo'); params.dueTo = query.dueTo }
+    if (query.search?.trim()) { clauses.push('(tasks.title LIKE :search OR tasks.notes LIKE :search OR EXISTS (SELECT 1 FROM task_tags tt JOIN tags t ON t.id=tt.tag_id WHERE tt.task_id=tasks.id AND t.name LIKE :search))'); params.search = `%${query.search.trim()}%` }
+    if (query.priorities?.length) { clauses.push(`tasks.priority IN (${query.priorities.map((_, i) => `:p${i}`).join(',')})`); query.priorities.forEach((value, i) => { params[`p${i}`] = value }) }
+    if (query.tagIds?.length) { clauses.push(`EXISTS (SELECT 1 FROM task_tags tt WHERE tt.task_id=tasks.id AND tt.tag_id IN (${query.tagIds.map((_, i) => `:t${i}`).join(',')}))`); query.tagIds.forEach((value, i) => { params[`t${i}`] = value }) }
+    if (query.due === 'none') clauses.push('tasks.due_date IS NULL')
+    if (query.due === 'today') clauses.push('tasks.due_date=:today')
+    if (query.due === 'overdue') clauses.push("tasks.due_date<:today AND tasks.status='active'")
+    if (query.due === 'next7') clauses.push('tasks.due_date>:today AND tasks.due_date<=:next7')
+    return (getDatabase().prepare(`SELECT tasks.* FROM tasks ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''} ORDER BY status, CASE WHEN due_date IS NULL THEN 1 ELSE 0 END, due_date, sort_order, created_at`).all(params) as any[]).map((row) => this.mapTask(row))
   }
-
-  getTask(taskId: string): Task {
-    const row = getDatabase().prepare('SELECT * FROM tasks WHERE id = ?').get(taskId)
-    if (!row) throw new Error('任务不存在')
-    return mapTask(row)
-  }
-
+  getTask(taskId: string): Task { const row = getDatabase().prepare('SELECT * FROM tasks WHERE id=?').get(taskId); if (!row) throw new Error('任务不存在'); return this.mapTask(row) }
   createTask(input: CreateTaskInput): Task {
-    const database = getDatabase(); const taskId = id(); const timestamp = now()
-    if (!input.title?.trim()) throw new Error('任务标题不能为空')
-    if (input.isPinned !== undefined && typeof input.isPinned !== 'boolean') throw new Error('任务置顶状态无效')
-    const ruleId = input.recurrence ? id() : null
-    database.transaction(() => {
-      database.prepare(`INSERT INTO tasks(id,title,list_id,due_date,priority,notes,sort_order,is_pinned,parent_task_id,recurrence_rule_id,created_at,updated_at) VALUES (@id,@title,@listId,@dueDate,@priority,@notes,@sortOrder,@isPinned,@parentTaskId,@ruleId,@createdAt,@updatedAt)`).run({ id: taskId, title: input.title.trim(), listId: input.listId ?? null, dueDate: input.dueDate ?? null, priority: input.priority ?? 'none', notes: input.notes ?? '', sortOrder: input.sortOrder ?? 0, isPinned: input.isPinned ? 1 : 0, parentTaskId: input.parentTaskId ?? null, ruleId, createdAt: timestamp, updatedAt: timestamp })
-      if (input.recurrence) database.prepare('INSERT INTO recurrence_rules(id,task_id,frequency,interval,weekdays,end_date,next_due_date,month_day) VALUES (?,?,?,?,?,?,?,?)').run(ruleId, taskId, input.recurrence.frequency, input.recurrence.interval ?? 1, JSON.stringify(input.recurrence.weekdays ?? []), input.recurrence.endDate ?? null, input.dueDate ?? null, input.recurrence.frequency === 'monthly' && input.dueDate ? Number(input.dueDate.slice(8, 10)) : null)
-    })()
+    if (!input.title?.trim()) throw new Error('任务标题不能为空'); if (input.isPinned !== undefined && typeof input.isPinned !== 'boolean') throw new Error('任务置顶状态无效'); this.validateTask(input); this.validateTagIds(input.tagIds)
+    const db = getDatabase(); const taskId = newId(); const createdAt = timestamp(); const ruleId = input.recurrence ? newId() : null
+    db.transaction(() => { db.prepare('INSERT INTO tasks(id,title,list_id,due_date,due_time,reminder_minutes_before,priority,notes,sort_order,is_pinned,parent_task_id,recurrence_rule_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(taskId, input.title.trim(), input.listId ?? null, input.dueDate ?? null, input.dueTime ?? null, input.reminderMinutesBefore ?? null, input.priority ?? 'none', input.notes ?? '', input.sortOrder ?? 0, input.isPinned ? 1 : 0, input.parentTaskId ?? null, ruleId, createdAt, createdAt); if (input.recurrence) db.prepare('INSERT INTO recurrence_rules(id,task_id,frequency,interval,weekdays,end_date,next_due_date,month_day) VALUES (?,?,?,?,?,?,?,?)').run(ruleId, taskId, input.recurrence.frequency, input.recurrence.interval ?? 1, JSON.stringify(input.recurrence.weekdays ?? []), input.recurrence.endDate ?? null, input.dueDate ?? null, input.recurrence.frequency === 'monthly' && input.dueDate ? Number(input.dueDate.slice(8, 10)) : null); this.saveTags(taskId, input.tagIds) })()
     return this.getTask(taskId)
   }
-
   updateTask(taskId: string, input: UpdateTaskInput): Task {
-    if (input.isPinned !== undefined && typeof input.isPinned !== 'boolean') throw new Error('任务置顶状态无效')
-    const current = this.getTask(taskId); const merged = { ...current, ...input, title: input.title?.trim() ?? current.title }; if (!merged.title) throw new Error('任务标题不能为空')
-    const database = getDatabase(); const timestamp = now(); const recurrence = input.recurrence
-    database.transaction(() => {
-      database.prepare(`UPDATE tasks SET title=@title,list_id=@listId,due_date=@dueDate,priority=@priority,notes=@notes,sort_order=@sortOrder,is_pinned=@isPinned,parent_task_id=@parentTaskId,updated_at=@updatedAt WHERE id=@id`).run({ id: taskId, title: merged.title, listId: merged.listId ?? null, dueDate: merged.dueDate ?? null, priority: merged.priority, notes: merged.notes ?? '', sortOrder: merged.sortOrder ?? 0, isPinned: merged.isPinned ? 1 : 0, parentTaskId: merged.parentTaskId ?? null, updatedAt: timestamp })
-      if (recurrence !== undefined) {
-        database.prepare('DELETE FROM recurrence_rules WHERE task_id = ?').run(taskId)
-        database.prepare('UPDATE tasks SET recurrence_rule_id = NULL WHERE id = ?').run(taskId)
-        if (recurrence) { const ruleId = id(); database.prepare('INSERT INTO recurrence_rules(id,task_id,frequency,interval,weekdays,end_date,next_due_date,month_day) VALUES (?,?,?,?,?,?,?,?)').run(ruleId, taskId, recurrence.frequency, recurrence.interval ?? 1, JSON.stringify(recurrence.weekdays ?? []), recurrence.endDate ?? null, merged.dueDate ?? null, recurrence.frequency === 'monthly' && merged.dueDate ? Number(merged.dueDate.slice(8, 10)) : null); database.prepare('UPDATE tasks SET recurrence_rule_id = ? WHERE id = ?').run(ruleId, taskId) }
-      }
-    })()
+    const current = this.getTask(taskId); if (input.isPinned !== undefined && typeof input.isPinned !== 'boolean') throw new Error('任务置顶状态无效'); this.validateTask(input); this.validateTagIds(input.tagIds); const merged = { ...current, ...input, title: input.title?.trim() ?? current.title }; if (!merged.title) throw new Error('任务标题不能为空')
+    const db = getDatabase(); db.transaction(() => { db.prepare('UPDATE tasks SET title=?,list_id=?,due_date=?,due_time=?,reminder_minutes_before=?,priority=?,notes=?,sort_order=?,is_pinned=?,parent_task_id=?,updated_at=?,reminder_notified_at=NULL WHERE id=?').run(merged.title, merged.listId ?? null, merged.dueDate ?? null, merged.dueTime ?? null, merged.reminderMinutesBefore ?? null, merged.priority, merged.notes ?? '', merged.sortOrder ?? 0, merged.isPinned ? 1 : 0, merged.parentTaskId ?? null, timestamp(), taskId); if (input.recurrence !== undefined) { db.prepare('DELETE FROM recurrence_rules WHERE task_id=?').run(taskId); db.prepare('UPDATE tasks SET recurrence_rule_id=NULL WHERE id=?').run(taskId); if (input.recurrence) { const ruleId = newId(); db.prepare('INSERT INTO recurrence_rules(id,task_id,frequency,interval,weekdays,end_date,next_due_date,month_day) VALUES (?,?,?,?,?,?,?,?)').run(ruleId, taskId, input.recurrence.frequency, input.recurrence.interval ?? 1, JSON.stringify(input.recurrence.weekdays ?? []), input.recurrence.endDate ?? null, merged.dueDate ?? null, input.recurrence.frequency === 'monthly' && merged.dueDate ? Number(merged.dueDate.slice(8, 10)) : null); db.prepare('UPDATE tasks SET recurrence_rule_id=? WHERE id=?').run(ruleId, taskId) } } if (input.tagIds !== undefined) this.saveTags(taskId, input.tagIds) })()
     return this.getTask(taskId)
   }
-
-  completeTask(taskId: string): void { const database = getDatabase(); const timestamp = now(); database.transaction(() => { const result = database.prepare("UPDATE tasks SET status='completed',completed_at=?,updated_at=? WHERE id=? AND status='active'").run(timestamp, timestamp, taskId); if (result.changes > 0) this.generateNext(taskId) })() }
-  restoreTask(taskId: string): void { getDatabase().prepare("UPDATE tasks SET status='active',completed_at=NULL,updated_at=? WHERE id=?").run(now(), taskId) }
-  removeTask(taskId: string): void { getDatabase().prepare('DELETE FROM tasks WHERE id=?').run(taskId) }
-  reorderTasks(taskIds: string[]): void {
-    const database = getDatabase(); const update = database.prepare('UPDATE tasks SET sort_order=?,updated_at=? WHERE id=?')
-    database.transaction(() => taskIds.forEach((taskId, index) => { if (update.run(index, now(), taskId).changes !== 1) throw new Error('任务不存在') }))()
-  }
-
-  private generateNext(taskId: string): void {
-    const database = getDatabase(); const rule = database.prepare('SELECT * FROM recurrence_rules WHERE task_id=?').get(taskId); const task = database.prepare('SELECT * FROM tasks WHERE id=?').get(taskId) as any
-    if (!rule || !task?.due_date) return
-    const r = mapRule(rule); const nextDate = nextRecurrenceDate(task.due_date, r.frequency, r.interval, r.weekdays, r.monthDay); if (r.endDate && nextDate > r.endDate) return
-    if (database.prepare('SELECT 1 FROM tasks WHERE generated_from_task_id=?').get(taskId)) return
-    const next = this.createTask({ title: task.title, listId: task.list_id, dueDate: nextDate, priority: task.priority, notes: task.notes, sortOrder: task.sort_order, parentTaskId: task.parent_task_id, recurrence: { frequency: r.frequency, interval: r.interval, weekdays: r.weekdays, endDate: r.endDate } })
-    database.prepare('UPDATE tasks SET generated_from_task_id=? WHERE id=?').run(taskId, next.id)
-    if (r.frequency === 'monthly') database.prepare('UPDATE recurrence_rules SET month_day=? WHERE task_id=?').run(r.monthDay, next.id)
-  }
+  completeTask(taskId: string): void { const db = getDatabase(); db.transaction(() => { if (db.prepare("UPDATE tasks SET status='completed',completed_at=?,updated_at=? WHERE id=? AND status='active' AND deleted_at IS NULL").run(timestamp(), timestamp(), taskId).changes) this.generateNext(taskId) })() }
+  restoreTask(taskId: string): void { const db = getDatabase(); db.transaction(() => { db.prepare("UPDATE tasks SET status='active',completed_at=NULL,updated_at=? WHERE id=? AND deleted_at IS NULL").run(timestamp(), taskId); db.prepare('UPDATE tasks SET deleted_at=?,updated_at=?,generated_from_task_id=NULL WHERE generated_from_task_id=? AND deleted_at IS NULL').run(timestamp(), timestamp(), taskId) })() }
+  removeTask(taskId: string): void { getDatabase().prepare('UPDATE tasks SET deleted_at=?,updated_at=? WHERE id=? OR parent_task_id=?').run(timestamp(), timestamp(), taskId, taskId) }
+  restoreRemoved(taskId: string): void { getDatabase().prepare('UPDATE tasks SET deleted_at=NULL,updated_at=? WHERE id=? OR parent_task_id=?').run(timestamp(), taskId, taskId) }
+  reorderTasks(taskIds: string[]): void { const db = getDatabase(); const update = db.prepare('UPDATE tasks SET sort_order=?,updated_at=? WHERE id=? AND deleted_at IS NULL'); db.transaction(() => taskIds.forEach((taskId, index) => { if (update.run(index, timestamp(), taskId).changes !== 1) throw new Error('任务不存在') }))() }
+  private generateNext(taskId: string): void { const db = getDatabase(); const row = db.prepare('SELECT * FROM recurrence_rules WHERE task_id=?').get(taskId); const task = db.prepare('SELECT * FROM tasks WHERE id=?').get(taskId) as any; if (!row || !task?.due_date || db.prepare('SELECT 1 FROM tasks WHERE generated_from_task_id=? AND deleted_at IS NULL').get(taskId)) return; const rule = mapRule(row); const dueDate = nextDate(task.due_date, rule); if (rule.endDate && dueDate > rule.endDate) return; const next = this.createTask({ title: task.title, listId: task.list_id, dueDate, dueTime: task.due_time, reminderMinutesBefore: task.reminder_minutes_before, priority: task.priority, notes: task.notes, sortOrder: task.sort_order, parentTaskId: task.parent_task_id, tagIds: this.tagsFor(taskId).map((tag) => tag.id), recurrence: { frequency: rule.frequency, interval: rule.interval, weekdays: rule.weekdays, endDate: rule.endDate } }); db.prepare('UPDATE tasks SET generated_from_task_id=? WHERE id=?').run(taskId, next.id) }
 
   listLists(): TaskList[] { return (getDatabase().prepare('SELECT * FROM task_lists ORDER BY is_pinned DESC,sort_order,name').all() as any[]).map(mapList) }
-  createList(input: CreateTaskListInput): TaskList { if (input.isPinned !== undefined && typeof input.isPinned !== 'boolean') throw new Error('清单置顶状态无效'); const timestamp = now(); const listId = id(); getDatabase().prepare('INSERT INTO task_lists(id,name,color,sort_order,is_pinned,created_at,updated_at) VALUES (?,?,?,?,?,?,?)').run(listId, input.name.trim(), input.color ?? null, input.sortOrder ?? 0, input.isPinned ? 1 : 0, timestamp, timestamp); return mapList(getDatabase().prepare('SELECT * FROM task_lists WHERE id=?').get(listId)) }
-  updateList(listId: string, input: UpdateTaskListInput): TaskList { if (input.isPinned !== undefined && typeof input.isPinned !== 'boolean') throw new Error('清单置顶状态无效'); const current = getDatabase().prepare('SELECT * FROM task_lists WHERE id=?').get(listId) as any; if (!current) throw new Error('清单不存在'); getDatabase().prepare('UPDATE task_lists SET name=?,color=?,sort_order=?,is_pinned=?,updated_at=? WHERE id=?').run(input.name?.trim() ?? current.name, input.color === undefined ? current.color : input.color, input.sortOrder ?? current.sort_order, input.isPinned === undefined ? current.is_pinned : input.isPinned ? 1 : 0, now(), listId); return mapList(getDatabase().prepare('SELECT * FROM task_lists WHERE id=?').get(listId)) }
-  reorderLists(listIds: string[]): void {
-    const database = getDatabase(); const update = database.prepare('UPDATE task_lists SET sort_order=?,updated_at=? WHERE id=?')
-    database.transaction(() => listIds.forEach((listId, index) => { if (update.run(index, now(), listId).changes !== 1) throw new Error('清单不存在') }))()
-  }
-  removeList(listId: string, taskPolicy: 'keep' | 'delete' = 'keep'): void {
-    const database = getDatabase()
-    database.transaction(() => {
-      if (taskPolicy === 'delete') database.prepare('DELETE FROM tasks WHERE list_id=?').run(listId)
-      if (database.prepare('DELETE FROM task_lists WHERE id=?').run(listId).changes !== 1) throw new Error('清单不存在')
-    })()
-  }
+  createList(input: CreateTaskListInput): TaskList { if (!input.name?.trim()) throw new Error('清单名称不能为空'); if (input.isPinned !== undefined && typeof input.isPinned !== 'boolean') throw new Error('清单置顶状态无效'); const id = newId(); const createdAt = timestamp(); getDatabase().prepare('INSERT INTO task_lists(id,name,color,sort_order,is_pinned,created_at,updated_at) VALUES (?,?,?,?,?,?,?)').run(id, input.name.trim(), input.color ?? null, input.sortOrder ?? 0, input.isPinned ? 1 : 0, createdAt, createdAt); return mapList(getDatabase().prepare('SELECT * FROM task_lists WHERE id=?').get(id)) }
+  updateList(id: string, input: UpdateTaskListInput): TaskList { const current = getDatabase().prepare('SELECT * FROM task_lists WHERE id=?').get(id) as any; if (!current) throw new Error('清单不存在'); if (input.isPinned !== undefined && typeof input.isPinned !== 'boolean') throw new Error('清单置顶状态无效'); getDatabase().prepare('UPDATE task_lists SET name=?,color=?,sort_order=?,is_pinned=?,updated_at=? WHERE id=?').run(input.name?.trim() ?? current.name, input.color === undefined ? current.color : input.color, input.sortOrder ?? current.sort_order, input.isPinned === undefined ? current.is_pinned : input.isPinned ? 1 : 0, timestamp(), id); return mapList(getDatabase().prepare('SELECT * FROM task_lists WHERE id=?').get(id)) }
+  reorderLists(ids: string[]): void { const db = getDatabase(); const update = db.prepare('UPDATE task_lists SET sort_order=?,updated_at=? WHERE id=?'); db.transaction(() => ids.forEach((id, index) => { if (update.run(index, timestamp(), id).changes !== 1) throw new Error('清单不存在') }))() }
+  removeList(id: string, policy: 'keep' | 'delete' = 'keep'): void { const db = getDatabase(); db.transaction(() => { if (policy === 'delete') db.prepare('UPDATE tasks SET deleted_at=?,updated_at=? WHERE list_id=?').run(timestamp(), timestamp(), id); else db.prepare('UPDATE tasks SET list_id=NULL,updated_at=? WHERE list_id=?').run(timestamp(), id); if (db.prepare('DELETE FROM task_lists WHERE id=?').run(id).changes !== 1) throw new Error('清单不存在') })() }
 
-  exportBackup(): BackupPayload { const database = getDatabase(); const settings = Object.fromEntries((database.prepare('SELECT key,value FROM app_settings').all() as any[]).map((x) => [x.key, JSON.parse(x.value)])); return { format: 'rumo-flow-backup', version: 1, exportedAt: now(), taskLists: this.listLists(), tasks: this.listTasks({}), recurrenceRules: (database.prepare('SELECT * FROM recurrence_rules').all() as any[]).map(mapRule), settings } }
+  listTags(): Tag[] { return (getDatabase().prepare('SELECT * FROM tags ORDER BY name').all() as any[]).map(mapTag) }
+  createTag(input: CreateTagInput): Tag { if (!input.name?.trim()) throw new Error('标签名称不能为空'); const id = newId(); const createdAt = timestamp(); try { getDatabase().prepare('INSERT INTO tags(id,name,color,created_at,updated_at) VALUES (?,?,?,?,?)').run(id, input.name.trim(), input.color ?? null, createdAt, createdAt) } catch { throw new Error('标签名称已存在') } return mapTag(getDatabase().prepare('SELECT * FROM tags WHERE id=?').get(id)) }
+  updateTag(id: string, input: UpdateTagInput): Tag { const current = getDatabase().prepare('SELECT * FROM tags WHERE id=?').get(id) as any; if (!current) throw new Error('标签不存在'); getDatabase().prepare('UPDATE tags SET name=?,color=?,updated_at=? WHERE id=?').run(input.name?.trim() ?? current.name, input.color === undefined ? current.color : input.color, timestamp(), id); return mapTag(getDatabase().prepare('SELECT * FROM tags WHERE id=?').get(id)) }
+  removeTag(id: string): void { if (getDatabase().prepare('DELETE FROM tags WHERE id=?').run(id).changes !== 1) throw new Error('标签不存在') }
+  private validateCriteria(criteria: TaskFilterCriteria): void { if (!criteria || typeof criteria !== 'object' || (criteria.status && !['active', 'completed', 'all'].includes(criteria.status)) || (criteria.due && !['today', 'overdue', 'next7', 'none', 'any'].includes(criteria.due))) throw new Error('筛选条件无效') }
+  listSavedFilters(): SavedFilter[] { return (getDatabase().prepare('SELECT * FROM saved_filters ORDER BY sort_order,name').all() as any[]).map((row) => ({ id: row.id, name: row.name, criteria: JSON.parse(row.criteria_json), sortOrder: row.sort_order, createdAt: row.created_at, updatedAt: row.updated_at })) }
+  createSavedFilter(input: CreateSavedFilterInput): SavedFilter { if (!input.name?.trim()) throw new Error('筛选名称不能为空'); this.validateCriteria(input.criteria); const id = newId(); const createdAt = timestamp(); getDatabase().prepare('INSERT INTO saved_filters(id,name,criteria_json,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?)').run(id, input.name.trim(), JSON.stringify(input.criteria), input.sortOrder ?? 0, createdAt, createdAt); return this.listSavedFilters().find((item) => item.id === id)! }
+  updateSavedFilter(id: string, input: UpdateSavedFilterInput): SavedFilter { const current = getDatabase().prepare('SELECT * FROM saved_filters WHERE id=?').get(id) as any; if (!current) throw new Error('筛选不存在'); if (input.criteria) this.validateCriteria(input.criteria); getDatabase().prepare('UPDATE saved_filters SET name=?,criteria_json=?,sort_order=?,updated_at=? WHERE id=?').run(input.name?.trim() ?? current.name, input.criteria ? JSON.stringify(input.criteria) : current.criteria_json, input.sortOrder ?? current.sort_order, timestamp(), id); return this.listSavedFilters().find((item) => item.id === id)! }
+  removeSavedFilter(id: string): void { if (getDatabase().prepare('DELETE FROM saved_filters WHERE id=?').run(id).changes !== 1) throw new Error('筛选不存在') }
+  getSettings(): AppSettings { const values = Object.fromEntries((getDatabase().prepare('SELECT key,value FROM app_settings').all() as any[]).map((row) => [row.key, JSON.parse(row.value)])); return { ...defaults, ...values } }
+  updateSettings(input: Partial<AppSettings>): AppSettings { const result = { ...this.getSettings(), ...input }; if (!['light', 'dark'].includes(result.theme) || !['comfortable', 'compact'].includes(result.density) || !result.globalShortcut.trim()) throw new Error('设置无效'); const save = getDatabase().prepare('INSERT INTO app_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value'); Object.entries(result).forEach(([key, value]) => save.run(key, JSON.stringify(value))); return result }
+  dueReminders(reference = new Date()): Array<{ task: Task; remindAt: Date }> { return (getDatabase().prepare("SELECT * FROM tasks WHERE status='active' AND deleted_at IS NULL AND due_date IS NOT NULL AND due_time IS NOT NULL AND reminder_minutes_before IS NOT NULL AND reminder_notified_at IS NULL").all() as any[]).map((row) => { const task = this.mapTask(row); const remindAt = new Date(`${task.dueDate}T${task.dueTime}:00`); remindAt.setMinutes(remindAt.getMinutes() - (task.reminderMinutesBefore ?? 0)); return { task, remindAt } }).filter(({ remindAt }) => remindAt <= reference && reference.getTime() - remindAt.getTime() <= 86400000) }
+  nextReminder(): { task: Task; remindAt: Date } | null { const current = new Date(); const items = (getDatabase().prepare("SELECT * FROM tasks WHERE status='active' AND deleted_at IS NULL AND due_date IS NOT NULL AND due_time IS NOT NULL AND reminder_minutes_before IS NOT NULL AND reminder_notified_at IS NULL").all() as any[]).map((row) => { const task = this.mapTask(row); const remindAt = new Date(`${task.dueDate}T${task.dueTime}:00`); remindAt.setMinutes(remindAt.getMinutes() - (task.reminderMinutesBefore ?? 0)); return { task, remindAt } }).filter((item) => item.remindAt > current).sort((a, b) => a.remindAt.getTime() - b.remindAt.getTime()); return items[0] ?? null }
+  markReminderNotified(id: string): void { getDatabase().prepare('UPDATE tasks SET reminder_notified_at=?,updated_at=? WHERE id=?').run(timestamp(), timestamp(), id) }
+  purgeDeleted(olderThan = new Date(Date.now() - 30 * 86400000)): number { return getDatabase().prepare('DELETE FROM tasks WHERE deleted_at IS NOT NULL AND deleted_at<?').run(olderThan.toISOString()).changes }
+
+  exportBackup(): BackupPayload { const db = getDatabase(); const tasks = this.listTasks(); return { format: 'rumo-flow-backup', version: 2, exportedAt: timestamp(), taskLists: this.listLists(), tasks, recurrenceRules: (db.prepare('SELECT * FROM recurrence_rules WHERE task_id IN (SELECT id FROM tasks WHERE deleted_at IS NULL)').all() as any[]).map(mapRule), tags: this.listTags(), taskTags: (db.prepare('SELECT task_id AS taskId,tag_id AS tagId FROM task_tags WHERE task_id IN (SELECT id FROM tasks WHERE deleted_at IS NULL)').all() as any[]), savedFilters: this.listSavedFilters(), settings: this.getSettings() } }
   importBackup(payload: BackupPayload): { importedTasks: number; importedLists: number; importedRules: number } {
-    this.validateBackup(payload)
-    const database = getDatabase(); const snapshot = this.exportBackup(); const backupDirectory = path.join(path.dirname(database.name), 'backups'); fs.mkdirSync(backupDirectory, { recursive: true }); fs.writeFileSync(path.join(backupDirectory, `pre-import-${Date.now()}.json`), JSON.stringify(snapshot, null, 2), 'utf8')
-    database.transaction(() => {
-      database.exec('DELETE FROM recurrence_rules; DELETE FROM tasks; DELETE FROM task_lists; DELETE FROM app_settings;')
-      const listStmt = database.prepare('INSERT INTO task_lists(id,name,color,sort_order,is_pinned,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
-      payload.taskLists.forEach((x) => listStmt.run(x.id, x.name, x.color, x.sortOrder, x.isPinned ? 1 : 0, x.createdAt, x.updatedAt))
-      const taskStmt = database.prepare('INSERT INTO tasks(id,title,list_id,due_date,priority,notes,status,sort_order,is_pinned,parent_task_id,recurrence_rule_id,created_at,updated_at,completed_at,generated_from_task_id) VALUES (?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,NULL)')
-      payload.tasks.forEach((x) => taskStmt.run(x.id,x.title,x.listId,x.dueDate,x.priority,x.notes,x.status,x.sortOrder,x.isPinned ? 1 : 0,x.recurrenceRuleId,x.createdAt,x.updatedAt,x.completedAt))
-      const links = database.prepare('UPDATE tasks SET parent_task_id=?, generated_from_task_id=? WHERE id=?')
-      payload.tasks.forEach((x) => links.run(x.parentTaskId, x.generatedFromTaskId ?? null, x.id))
-      const ruleStmt = database.prepare('INSERT INTO recurrence_rules(id,task_id,frequency,interval,weekdays,end_date,next_due_date,month_day) VALUES (?,?,?,?,?,?,?,?)')
-      payload.recurrenceRules.forEach((x) => ruleStmt.run(x.id,x.taskId,x.frequency,x.interval,JSON.stringify(x.weekdays),x.endDate,x.nextDueDate,x.monthDay ?? null))
-      const settingsStmt = database.prepare('INSERT INTO app_settings(key,value) VALUES (?,?)')
-      Object.entries(payload.settings ?? {}).forEach(([key,value]) => settingsStmt.run(key,JSON.stringify(value)))
-    })()
+    this.validateBackup(payload); const db = getDatabase(); const folder = path.join(path.dirname(db.name), 'backups'); fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(path.join(folder, `pre-import-${Date.now()}.json`), JSON.stringify(this.exportBackup(), null, 2))
+    db.transaction(() => { db.exec('DELETE FROM recurrence_rules; DELETE FROM task_tags; DELETE FROM tasks; DELETE FROM task_lists; DELETE FROM tags; DELETE FROM saved_filters; DELETE FROM app_settings;'); const lists = db.prepare('INSERT INTO task_lists(id,name,color,sort_order,is_pinned,created_at,updated_at) VALUES (?,?,?,?,?,?,?)'); payload.taskLists.forEach((x) => lists.run(x.id, x.name, x.color, x.sortOrder, x.isPinned ? 1 : 0, x.createdAt, x.updatedAt)); const tags = db.prepare('INSERT INTO tags(id,name,color,created_at,updated_at) VALUES (?,?,?,?,?)'); (payload.tags ?? []).forEach((x) => tags.run(x.id, x.name, x.color, x.createdAt, x.updatedAt)); const tasks = db.prepare('INSERT INTO tasks(id,title,list_id,due_date,due_time,reminder_minutes_before,priority,notes,status,sort_order,is_pinned,parent_task_id,recurrence_rule_id,created_at,updated_at,completed_at,generated_from_task_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,NULL)'); payload.tasks.forEach((x) => tasks.run(x.id, x.title, x.listId, x.dueDate, x.dueTime ?? null, x.reminderMinutesBefore ?? null, x.priority, x.notes, x.status, x.sortOrder, x.isPinned ? 1 : 0, x.recurrenceRuleId, x.createdAt, x.updatedAt, x.completedAt)); const taskLinks = db.prepare('UPDATE tasks SET parent_task_id=?,generated_from_task_id=? WHERE id=?'); payload.tasks.forEach((x) => taskLinks.run(x.parentTaskId, x.generatedFromTaskId ?? null, x.id)); const rules = db.prepare('INSERT INTO recurrence_rules(id,task_id,frequency,interval,weekdays,end_date,next_due_date,month_day) VALUES (?,?,?,?,?,?,?,?)'); payload.recurrenceRules.forEach((x) => rules.run(x.id, x.taskId, x.frequency, x.interval, JSON.stringify(x.weekdays), x.endDate, x.nextDueDate, x.monthDay ?? null)); const links = db.prepare('INSERT INTO task_tags(task_id,tag_id) VALUES (?,?)'); (payload.taskTags ?? []).forEach((x) => links.run(x.taskId, x.tagId)); const filters = db.prepare('INSERT INTO saved_filters(id,name,criteria_json,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?)'); (payload.savedFilters ?? []).forEach((x) => filters.run(x.id, x.name, JSON.stringify(x.criteria), x.sortOrder, x.createdAt, x.updatedAt)); const settings = db.prepare('INSERT INTO app_settings(key,value) VALUES (?,?)'); Object.entries(payload.settings).forEach(([key, value]) => settings.run(key, JSON.stringify(value))) })()
     return { importedTasks: payload.tasks.length, importedLists: payload.taskLists.length, importedRules: payload.recurrenceRules.length }
   }
-
-  private validateBackup(payload: BackupPayload): void {
-    if (!payload || !['rumo-flow-backup', 'rumo-daiban-backup'].includes(payload.format) || payload.version !== 1 || !Array.isArray(payload.tasks) || !Array.isArray(payload.taskLists) || !Array.isArray(payload.recurrenceRules) || !payload.settings || typeof payload.settings !== 'object') throw new Error('备份文件格式不受支持')
-    const listIds = new Set(payload.taskLists.map((x) => x.id)); const taskIds = new Set(payload.tasks.map((x) => x.id)); if (listIds.size !== payload.taskLists.length || taskIds.size !== payload.tasks.length) throw new Error('备份文件包含重复编号')
-    for (const list of payload.taskLists) if (!list.id || !list.name || !Number.isInteger(list.sortOrder) || (list.isPinned !== undefined && typeof list.isPinned !== 'boolean')) throw new Error('备份清单数据无效')
-    for (const task of payload.tasks) { if (!task.id || !task.title || !['none','low','medium','high'].includes(task.priority) || !['active','completed'].includes(task.status) || (task.isPinned !== undefined && typeof task.isPinned !== 'boolean') || (task.listId && !listIds.has(task.listId)) || (task.parentTaskId && !taskIds.has(task.parentTaskId))) throw new Error('备份任务数据无效') }
-    const ruleIds = new Set<string>(); for (const rule of payload.recurrenceRules) { if (!rule.id || ruleIds.has(rule.id) || !taskIds.has(rule.taskId) || !['daily','weekly','monthly'].includes(rule.frequency) || !Number.isInteger(rule.interval) || rule.interval < 1 || !Array.isArray(rule.weekdays) || rule.weekdays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) throw new Error('备份重复规则无效'); ruleIds.add(rule.id) }
-    for (const task of payload.tasks) if ((task.recurrenceRuleId && !ruleIds.has(task.recurrenceRuleId)) || (task.generatedFromTaskId && !taskIds.has(task.generatedFromTaskId))) throw new Error('备份任务关联无效')
-  }
+  private validateBackup(payload: BackupPayload): void { if (!payload || ![1, 2].includes(payload.version) || !['rumo-flow-backup', 'rumo-daiban-backup'].includes(payload.format) || !Array.isArray(payload.tasks) || !Array.isArray(payload.taskLists) || !Array.isArray(payload.recurrenceRules)) throw new Error('备份文件格式不受支持'); const lists = new Set(payload.taskLists.map((x) => x.id)); const tasks = new Set(payload.tasks.map((x) => x.id)); if (lists.size !== payload.taskLists.length || tasks.size !== payload.tasks.length) throw new Error('备份文件包含重复编号'); payload.tasks.forEach((task) => { if (!task.id || !task.title || (task.listId && !lists.has(task.listId)) || (task.parentTaskId && !tasks.has(task.parentTaskId))) throw new Error('备份任务数据无效'); this.validateTask(task) }); const rules = new Set(payload.recurrenceRules.map((x) => x.id)); if (rules.size !== payload.recurrenceRules.length || payload.recurrenceRules.some((x) => !tasks.has(x.taskId))) throw new Error('备份重复规则无效'); if (payload.tasks.some((x) => (x.recurrenceRuleId && !rules.has(x.recurrenceRuleId)) || (x.generatedFromTaskId && !tasks.has(x.generatedFromTaskId)))) throw new Error('备份任务关联无效'); if (payload.version === 2) { const tags = new Set((payload.tags ?? []).map((x) => x.id)); if ((payload.taskTags ?? []).some((x) => !tasks.has(x.taskId) || !tags.has(x.tagId))) throw new Error('备份标签关联无效'); (payload.savedFilters ?? []).forEach((x) => this.validateCriteria(x.criteria)) } }
 }

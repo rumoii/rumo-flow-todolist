@@ -187,7 +187,7 @@ describe('Repository with an isolated SQLite database', () => {
     repository.importBackup(oldBackup)
     expect(repository.listLists()[0].isPinned).toBe(false)
     expect(repository.listTasks()[0].isPinned).toBe(false)
-    expect(getDatabase().prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toEqual({ version: 4 })
+    expect(getDatabase().prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toEqual({ version: 6 })
   })
 
   it('rejects invalid persisted pin values before writing', () => {
@@ -196,5 +196,60 @@ describe('Repository with an isolated SQLite database', () => {
     expect(() => repository.createList({ name: '错误清单', isPinned: 1 as unknown as boolean })).toThrow('清单置顶状态无效')
     expect(repository.listTasks()).toHaveLength(0)
     expect(repository.listLists()).toHaveLength(0)
+  })
+
+  it('stores tags, saved filters, reminder fields and exports backup version 2', () => {
+    const repository = new Repository()
+    const tag = repository.createTag({ name: '紧急', color: '#ff5d5d' })
+    const task = repository.createTask({ title: '带提醒任务', dueDate: '2026-08-28', dueTime: '10:30', reminderMinutesBefore: 15, tagIds: [tag.id] })
+    const filter = repository.createSavedFilter({ name: '紧急任务', criteria: { status: 'active', tagIds: [tag.id] } })
+    expect(repository.getTask(task.id).tags.map((item) => item.name)).toEqual(['紧急'])
+    expect(repository.listTasks({ search: '紧急' }).map((item) => item.id)).toEqual([task.id])
+    expect(repository.listSavedFilters()[0]).toEqual(filter)
+    const backup = repository.exportBackup()
+    expect(backup.version).toBe(2)
+    expect(backup.taskTags).toEqual([{ taskId: task.id, tagId: tag.id }])
+  })
+
+  it('soft deletes and restores a task subtree', () => {
+    const repository = new Repository()
+    const parent = repository.createTask({ title: '父任务' })
+    const child = repository.createTask({ title: '子任务', parentTaskId: parent.id })
+    repository.removeTask(parent.id)
+    expect(repository.listTasks()).toHaveLength(0)
+    repository.restoreRemoved(parent.id)
+    expect(repository.listTasks().map((item) => item.id)).toEqual(expect.arrayContaining([parent.id, child.id]))
+  })
+
+  it('deduplicates reminders and ignores reminders missed by more than 24 hours', () => {
+    const repository = new Repository()
+    const recent = repository.createTask({ title: '近期提醒', dueDate: '2026-08-28', dueTime: '10:00', reminderMinutesBefore: 15 })
+    repository.createTask({ title: '过期提醒', dueDate: '2026-08-27', dueTime: '08:00', reminderMinutesBefore: 5 })
+    const due = repository.dueReminders(new Date('2026-08-28T10:00:00'))
+    expect(due.map((item) => item.task.id)).toEqual([recent.id])
+    repository.markReminderNotified(recent.id)
+    expect(repository.dueReminders(new Date('2026-08-28T10:00:00'))).toHaveLength(0)
+  })
+
+  it('undoes recurring completion without leaving its generated next task active', () => {
+    const repository = new Repository()
+    const task = repository.createTask({ title: '重复撤销', dueDate: '2026-08-28', recurrence: { frequency: 'daily' } })
+    repository.completeTask(task.id)
+    expect(repository.listTasks({ search: '重复撤销' })).toHaveLength(2)
+    repository.restoreTask(task.id)
+    expect(repository.listTasks({ search: '重复撤销' })).toEqual([expect.objectContaining({ id: task.id, status: 'active' })])
+    repository.completeTask(task.id)
+    expect(repository.listTasks({ search: '重复撤销' })).toHaveLength(2)
+  })
+
+  it('round-trips version 2 backups with parent and generated task links', () => {
+    const repository = new Repository()
+    const recurring = repository.createTask({ title: '备份重复任务', dueDate: '2026-08-28', recurrence: { frequency: 'daily' } })
+    repository.createTask({ title: '备份子任务', parentTaskId: recurring.id })
+    repository.completeTask(recurring.id)
+    const backup = repository.exportBackup()
+    expect(() => repository.importBackup(backup)).not.toThrow()
+    expect(repository.listTasks({ search: '备份重复任务' })).toHaveLength(2)
+    expect(repository.listTasks({ search: '备份子任务' })[0].parentTaskId).toBe(recurring.id)
   })
 })

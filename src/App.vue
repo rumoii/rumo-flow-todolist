@@ -1,25 +1,39 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import rumoFlowIcon from './assets/rumo-flow-icon.svg'
-import type { CreateTaskInput, RecurrenceFrequency, Task, TaskList, TaskPriority, UpdateTaskInput } from './shared/contracts'
+import { parseQuickAdd } from './shared/quick-add'
+import type { AppSettings, CreateTaskInput, DesktopStatus, RecurrenceFrequency, SavedFilter, Tag, Task, TaskList, TaskPriority, UpdateTaskInput } from './shared/contracts'
 
-type View = 'today' | 'upcoming' | 'week' | 'completed' | `list:${string}`
-type Draft = { title: string; listId: string | null; dueDate: string; priority: TaskPriority; notes: string; recurrence: RecurrenceFrequency | 'none'; recurrenceEnd: string }
+type View = 'inbox' | 'today' | 'upcoming' | 'week' | 'completed' | `list:${string}` | `filter:${string}`
+type Draft = { title: string; listId: string | null; dueDate: string; dueTime: string; reminderMinutesBefore: number | null; tagIds: string[]; priority: TaskPriority; notes: string; recurrence: RecurrenceFrequency | 'none'; recurrenceEnd: string }
 
 const hasApi = () => typeof window !== 'undefined' && !!window.todoApi
 const tasks = ref<Task[]>([])
 const lists = ref<TaskList[]>([])
+const tags = ref<Tag[]>([])
+const savedFilters = ref<SavedFilter[]>([])
+const settings = ref<AppSettings>({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space' })
+const desktopStatus = ref<DesktopStatus>({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: false })
 const activeView = ref<View>('today')
 const selectedTaskId = ref<string | null>(null)
 const quickTitle = ref('')
 const quickInput = ref<HTMLInputElement | null>(null)
 const search = ref('')
+const groupBy = ref<'none' | 'list' | 'priority' | 'tag'>('none')
 const detailOpen = ref(false)
 const detailDraft = ref<Draft | null>(null)
 const pendingDelete = ref<Task | null>(null)
 const pendingListDelete = ref<TaskList | null>(null)
 const listDeletePolicy = ref<'keep' | 'delete'>('keep')
 const settingsOpen = ref(false)
+const shortcutsOpen = ref(false)
+const filterComposerOpen = ref(false)
+const newFilterName = ref('')
+const newFilterStatus = ref<'active' | 'completed' | 'all'>('active')
+const newFilterListId = ref<string>('any')
+const newFilterPriority = ref<TaskPriority | 'any'>('any')
+const newFilterTagId = ref('any')
+const newFilterDue = ref<'any' | 'today' | 'overdue' | 'next7' | 'none'>('any')
 const listComposerOpen = ref(false)
 const newListName = ref('')
 const newSubtaskTitle = ref('')
@@ -27,6 +41,7 @@ const openListMenuId = ref<string | null>(null)
 const openTaskMenuId = ref<string | null>(null)
 const recurrenceDrafts = new Map<string, { frequency: RecurrenceFrequency; endDate: string }>()
 const toast = ref('')
+const toastAction = ref<{ label: string; run: () => Promise<void> } | null>(null)
 const loading = ref(true)
 const draggedTaskId = ref<string | null>(null)
 const draggedListId = ref<string | null>(null)
@@ -44,18 +59,20 @@ const fallbackLists: TaskList[] = [{ id: 'inbox', name: '收集箱', color: '#85
 const fallbackTasks: Task[] = []
 const priorityRank: Record<TaskPriority, number> = { high: 0, medium: 1, low: 2, none: 3 }
 
-function notify(message: string) {
+function notify(message: string, action: { label: string; run: () => Promise<void> } | null = null) {
   toast.value = message
+  toastAction.value = action
   window.clearTimeout(toastTimer)
-  toastTimer = window.setTimeout(() => { toast.value = '' }, 2800)
+  toastTimer = window.setTimeout(() => { toast.value = ''; toastAction.value = null }, action ? 6000 : 2800)
 }
 
 async function loadData() {
   loading.value = true
   try {
     if (hasApi()) {
-      lists.value = (await window.todoApi.lists.list()).map(list => ({ ...list, isPinned: list.isPinned ?? false }))
-      tasks.value = (await window.todoApi.tasks.list({})).map(task => ({ ...task, isPinned: task.isPinned ?? false }))
+      const api = window.todoApi
+      const loaded = await Promise.all([api.lists.list(), api.tasks.list({}), api.tags?.list?.() ?? Promise.resolve([]), api.filters?.list?.() ?? Promise.resolve([]), api.settings?.get?.() ?? Promise.resolve(settings.value), api.desktop?.status?.() ?? Promise.resolve(desktopStatus.value)])
+      lists.value = loaded[0].map(list => ({ ...list, isPinned: list.isPinned ?? false })); tasks.value = loaded[1].map(task => ({ ...task, isPinned: task.isPinned ?? false, dueTime: task.dueTime ?? null, reminderMinutesBefore: task.reminderMinutesBefore ?? null, deletedAt: task.deletedAt ?? null, tags: task.tags ?? [] })); tags.value = loaded[2]; savedFilters.value = loaded[3]; settings.value = loaded[4]; desktopStatus.value = loaded[5]; applySettings()
     } else {
       lists.value = fallbackLists
       tasks.value = fallbackTasks
@@ -64,7 +81,8 @@ async function loadData() {
 }
 
 const activeListId = computed(() => activeView.value.startsWith('list:') ? activeView.value.slice(5) : null)
-const viewTitle = computed(() => ({ today: '今天', upcoming: '即将到期', week: '本周', completed: '已完成' }[activeView.value as string] || lists.value.find(list => list.id === activeListId.value)?.name || '待办'))
+const activeFilter = computed(() => activeView.value.startsWith('filter:') ? savedFilters.value.find(filter => filter.id === activeView.value.slice(7)) : null)
+const viewTitle = computed(() => ({ inbox: '收集箱', today: '今天', upcoming: '即将到期', week: '本周', completed: '已完成' }[activeView.value as string] || activeFilter.value?.name || lists.value.find(list => list.id === activeListId.value)?.name || '待办'))
 const viewHint = computed(() => activeView.value === 'today' ? `${today.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })} · 把注意力放在最重要的事上` : activeView.value === 'upcoming' ? '未来 30 天的安排' : activeView.value === 'week' ? '接下来七天的轻量排程' : activeView.value === 'completed' ? '已经完成的任务' : '这个清单中的任务')
 const taskReorderEnabled = computed(() => !search.value.trim() && (activeView.value === 'today' || Boolean(activeListId.value)))
 
@@ -79,14 +97,18 @@ const filteredTasks = computed(() => {
     if (activeView.value === 'completed' && task.status !== 'completed') return false
     if (activeView.value !== 'completed' && task.status === 'completed') return false
     if (activeListId.value && task.listId !== activeListId.value) return false
+    if (activeView.value === 'inbox' && task.listId !== null) return false
     if (activeView.value === 'today' && (!task.dueDate || task.dueDate > todayIso)) return false
     if (activeView.value === 'upcoming' && (!task.dueDate || task.dueDate < todayIso || task.dueDate > isoDate(new Date(today.getTime() + 30 * 86400000)))) return false
     if (activeView.value === 'week' && (!task.dueDate || task.dueDate < todayIso || task.dueDate > isoDate(weekEnd))) return false
-    return !q || task.title.toLowerCase().includes(q) || task.notes.toLowerCase().includes(q)
+    if (activeFilter.value) { const f = activeFilter.value.criteria; if (f.status && f.status !== 'all' && task.status !== f.status) return false; if (f.listId !== undefined && task.listId !== f.listId) return false; if (f.priorities?.length && !f.priorities.includes(task.priority)) return false; if (f.tagIds?.length && !task.tags.some(tag => f.tagIds!.includes(tag.id))) return false; if (f.due === 'today' && task.dueDate !== todayIso) return false; if (f.due === 'overdue' && (!task.dueDate || task.dueDate >= todayIso)) return false; if (f.due === 'next7' && (!task.dueDate || task.dueDate <= todayIso || task.dueDate > isoDate(new Date(today.getTime() + 7 * 86400000)))) return false; if (f.due === 'none' && task.dueDate) return false; if (f.search && !`${task.title} ${task.notes} ${task.tags.map(tag => tag.name).join(' ')}`.toLowerCase().includes(f.search.toLowerCase())) return false }
+    return !q || task.title.toLowerCase().includes(q) || task.notes.toLowerCase().includes(q) || task.tags.some(tag => tag.name.toLowerCase().includes(q))
   }).sort(compareTasks)
 })
 const pinnedTasks = computed(() => filteredTasks.value.filter(task => task.isPinned))
 const regularTasks = computed(() => filteredTasks.value.filter(task => !task.isPinned))
+function taskGroupLabel(task: Task): string { if (groupBy.value === 'list') return lists.value.find(list => list.id === task.listId)?.name ?? '收集箱'; if (groupBy.value === 'priority') return priorityLabel(task.priority); if (groupBy.value === 'tag') return task.tags[0]?.name ? `#${task.tags[0].name}` : '无标签'; return '' }
+const groupedRegularTasks = computed(() => groupBy.value === 'none' ? regularTasks.value : [...regularTasks.value].sort((a, b) => taskGroupLabel(a).localeCompare(taskGroupLabel(b), 'zh-CN') || compareTasks(a, b)))
 const sortedLists = computed(() => [...lists.value].sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)))
 const pinnedLists = computed(() => sortedLists.value.filter(list => list.isPinned))
 const regularLists = computed(() => sortedLists.value.filter(list => !list.isPinned))
@@ -101,7 +123,7 @@ function selectTask(task: Task) {
   selectedTaskId.value = task.id
   detailOpen.value = true
   const savedRecurrence = recurrenceDrafts.get(task.id)
-  detailDraft.value = { title: task.title, listId: task.listId, dueDate: task.dueDate || '', priority: task.priority, notes: task.notes, recurrence: savedRecurrence?.frequency || (task.recurrenceRuleId ? 'daily' : 'none'), recurrenceEnd: savedRecurrence?.endDate || '' }
+  detailDraft.value = { title: task.title, listId: task.listId, dueDate: task.dueDate || '', dueTime: task.dueTime || '', reminderMinutesBefore: task.reminderMinutesBefore, tagIds: task.tags.map(tag => tag.id), priority: task.priority, notes: task.notes, recurrence: savedRecurrence?.frequency || (task.recurrenceRuleId ? 'daily' : 'none'), recurrenceEnd: savedRecurrence?.endDate || '' }
 }
 function dateLabel(value: string | null) {
   if (!value) return '无日期'
@@ -115,22 +137,23 @@ function priorityCode(priority: TaskPriority) { return ({ none: '', low: 'P3', m
 function priorityClass(priority: TaskPriority) { return priority === 'high' ? 'priority-high' : priority === 'medium' ? 'priority-medium' : priority === 'low' ? 'priority-low' : '' }
 
 async function createTask(title = quickTitle.value) {
-  const clean = title.trim(); if (!clean) return
-  const input: CreateTaskInput = { title: clean, listId: activeListId.value, dueDate: activeView.value === 'today' ? todayIso : null, priority: 'none', notes: '', isPinned: false }
+  const parsed = parseQuickAdd(title, lists.value, tags.value, today); const clean = parsed.input.title.trim(); if (!clean) return
+  for (const name of parsed.tagNames) if (!tags.value.some(tag => tag.name === name) && hasApi() && window.todoApi.tags) tags.value.push(await window.todoApi.tags.create({ name, color: '#856AF9' }))
+  const input: CreateTaskInput = { ...parsed.input, title: clean, tagIds: tags.value.filter(tag => parsed.tagNames.includes(tag.name)).map(tag => tag.id), listId: parsed.recognized.some(token => token.startsWith('~')) ? parsed.input.listId : activeListId.value, dueDate: parsed.recognized.some(token => token.startsWith('@')) ? parsed.input.dueDate : activeView.value === 'today' ? todayIso : null, notes: '', isPinned: false }
   try {
     const task = hasApi() ? await window.todoApi.tasks.create(input) : ({ ...input, id: crypto.randomUUID(), status: 'active', sortOrder: tasks.value.length, isPinned: false, parentTaskId: null, recurrenceRuleId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: null } as Task)
-    tasks.value.push({ ...task, isPinned: task.isPinned ?? false }); quickTitle.value = ''; notify('任务已添加')
+    tasks.value.push({ ...task, isPinned: task.isPinned ?? false }); quickTitle.value = ''; notify(parsed.recognized.length ? `已识别 ${parsed.recognized.join(' ')}` : '任务已添加')
   } catch { notify('添加失败') }
 }
 async function toggleTask(task: Task) {
-  try { if (hasApi()) task.status === 'completed' ? await window.todoApi.tasks.restore(task.id) : await window.todoApi.tasks.complete(task.id); task.status = task.status === 'completed' ? 'active' : 'completed'; task.completedAt = task.status === 'active' ? null : new Date().toISOString(); notify(task.status === 'completed' ? '已完成' : '已恢复') } catch { notify('更新失败') }
+  const wasCompleted = task.status === 'completed'; try { if (hasApi()) wasCompleted ? await window.todoApi.tasks.restore(task.id) : await window.todoApi.tasks.complete(task.id); await loadData(); notify(wasCompleted ? '已恢复' : '已完成', { label: '撤销', run: async () => { if (hasApi()) wasCompleted ? await window.todoApi.tasks.complete(task.id) : await window.todoApi.tasks.restore(task.id); await loadData(); notify('已撤销') } }) } catch { notify('更新失败') }
 }
 async function saveDetail() {
   if (!activeTask.value || !detailDraft.value || !detailDraft.value.title.trim()) return
   const task = activeTask.value
   const oldPriority = task.priority
   const draft = detailDraft.value
-  const input: UpdateTaskInput = { title: draft.title.trim(), listId: draft.listId, dueDate: draft.dueDate || null, priority: draft.priority, notes: draft.notes, recurrence: draft.recurrence === 'none' ? null : { frequency: draft.recurrence, interval: 1, endDate: draft.recurrenceEnd || null } }
+  const input: UpdateTaskInput = { title: draft.title.trim(), listId: draft.listId, dueDate: draft.dueDate || null, dueTime: draft.dueTime || null, reminderMinutesBefore: draft.reminderMinutesBefore, tagIds: draft.tagIds, priority: draft.priority, notes: draft.notes, recurrence: draft.recurrence === 'none' ? null : { frequency: draft.recurrence, interval: 1, endDate: draft.recurrenceEnd || null } }
   try {
     const updated = hasApi() ? await window.todoApi.tasks.update(task.id, input) : ({ ...task, ...input, recurrenceRuleId: draft.recurrence === 'none' ? null : (task.recurrenceRuleId || 'preview-rule'), updatedAt: new Date().toISOString() } as Task)
     Object.assign(task, updated, { isPinned: updated.isPinned ?? task.isPinned })
@@ -140,7 +163,7 @@ async function saveDetail() {
   } catch { notify('保存失败') }
 }
 async function removeTask(task: Task) {
-  try { if (hasApi()) await window.todoApi.tasks.remove(task.id); tasks.value = tasks.value.filter(item => item.id !== task.id && item.parentTaskId !== task.id); detailOpen.value = false; selectedTaskId.value = null; notify('任务已删除') } catch { notify('删除失败') }
+  try { if (hasApi()) await window.todoApi.tasks.remove(task.id); tasks.value = tasks.value.filter(item => item.id !== task.id && item.parentTaskId !== task.id); detailOpen.value = false; selectedTaskId.value = null; notify('任务已删除', { label: '撤销', run: async () => { if (hasApi()) await window.todoApi.tasks.restoreRemoved(task.id); await loadData(); notify('已恢复任务') } }) } catch { notify('删除失败') }
 }
 async function addList() {
   const name = newListName.value.trim(); if (!name) return
@@ -277,13 +300,20 @@ function toggleTaskMenu(taskId: string) { openListMenuId.value = null; openTaskM
 function requestListDelete(list: TaskList) { closeMenus(); listDeletePolicy.value = 'keep'; pendingListDelete.value = list }
 async function exportBackup() { if (!hasApi()) { notify('请在桌面应用中导出备份'); return } try { const filePath = await window.todoApi.backup.export(); if (filePath) notify('备份已导出') } catch { notify('备份导出失败') } }
 async function importBackup() { if (!hasApi()) { notify('请在桌面应用中恢复备份'); return } try { const result = await window.todoApi.backup.import(); if (result) { await loadData(); settingsOpen.value = false; notify(`已恢复 ${result.importedTasks} 个任务`) } } catch { notify('备份恢复失败，现有数据未改变') } }
+function applySettings() { document.documentElement.dataset.theme = settings.value.theme; document.documentElement.dataset.density = settings.value.density }
+async function saveSettings() { if (hasApi()) { settings.value = await window.todoApi.settings.update(settings.value); desktopStatus.value = await window.todoApi.desktop.status() } applySettings(); notify('偏好已保存') }
+async function createFilter() { const name = newFilterName.value.trim(); if (!name || !hasApi()) return; const filter = await window.todoApi.filters.create({ name, criteria: { status: newFilterStatus.value, listId: newFilterListId.value === 'any' ? undefined : newFilterListId.value === 'inbox' ? null : newFilterListId.value, priorities: newFilterPriority.value === 'any' ? undefined : [newFilterPriority.value], tagIds: newFilterTagId.value === 'any' ? undefined : [newFilterTagId.value], due: newFilterDue.value, search: search.value.trim() || undefined }, sortOrder: savedFilters.value.length }); savedFilters.value.push(filter); newFilterName.value = ''; filterComposerOpen.value = false; activeView.value = `filter:${filter.id}`; notify('筛选已保存') }
+async function removeFilter(filter: SavedFilter) { if (hasApi()) await window.todoApi.filters.remove(filter.id); savedFilters.value = savedFilters.value.filter(item => item.id !== filter.id); if (activeView.value === `filter:${filter.id}`) activeView.value = 'today'; notify('筛选已删除') }
+async function runToastAction() { const action = toastAction.value; if (!action) return; toastAction.value = null; await action.run() }
 function handleShortcut(event: KeyboardEvent) {
   if (event.ctrlKey && event.key.toLowerCase() === 'n') { event.preventDefault(); focusQuickAdd() }
-  if (event.key === 'Escape') { closeMenus(); pendingDelete.value = null; pendingListDelete.value = null; settingsOpen.value = false; detailOpen.value = false }
+  if (event.key === '?') shortcutsOpen.value = true
+  if (event.key === 'Escape') { closeMenus(); pendingDelete.value = null; pendingListDelete.value = null; settingsOpen.value = false; shortcutsOpen.value = false; detailOpen.value = false }
 }
 
-onMounted(() => { loadData(); window.addEventListener('keydown', handleShortcut) })
-onBeforeUnmount(() => window.removeEventListener('keydown', handleShortcut))
+let removeDesktopListener: (() => void) | undefined
+onMounted(() => { loadData(); window.addEventListener('keydown', handleShortcut); if (hasApi() && window.todoApi.desktop) removeDesktopListener = window.todoApi.desktop.onFocusQuickAdd((taskId) => { focusQuickAdd(); loadData().then(() => { if (taskId) { selectedTaskId.value = taskId; const task = tasks.value.find(item => item.id === taskId); if (task) selectTask(task) } }) }) })
+onBeforeUnmount(() => { window.removeEventListener('keydown', handleShortcut); removeDesktopListener?.() })
 </script>
 
 <template>
@@ -292,11 +322,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleShortcut))
       <div class="brand"><img class="brand-mark" :src="rumoFlowIcon" alt="Rumo-Flow" /><span class="brand-copy"><span>Rumo-<b>Flow</b></span><small>Todo List</small></span></div>
       <button class="primary-action" @click="focusQuickAdd"><span>＋</span> 新建任务 <kbd>Ctrl N</kbd></button>
       <nav class="nav-group">
+        <button :class="['nav-item', { active: activeView === 'inbox' }]" @click="activeView = 'inbox'"><span>✦</span> 收集箱 <em>{{ tasks.filter(task => task.status === 'active' && task.listId === null).length }}</em></button>
         <button :class="['nav-item', { active: activeView === 'today' }]" @click="activeView = 'today'"><span>☀</span> 今天 <em>{{ tasks.filter(task => task.status === 'active' && (!task.dueDate || task.dueDate <= todayIso)).length }}</em></button>
         <button :class="['nav-item', { active: activeView === 'upcoming' }]" @click="activeView = 'upcoming'"><span>◷</span> 即将到期</button>
         <button :class="['nav-item', { active: activeView === 'week' }]" @click="activeView = 'week'"><span>▦</span> 本周</button>
         <button :class="['nav-item', { active: activeView === 'completed' }]" @click="activeView = 'completed'"><span>✓</span> 已完成 <em>{{ completedCount }}</em></button>
       </nav>
+      <div class="sidebar-section saved-filter-section"><div class="section-title">保存的筛选 <button class="icon-button" aria-label="新建筛选" @click.stop="filterComposerOpen = !filterComposerOpen">＋</button></div><div v-if="filterComposerOpen" class="list-composer" @click.stop><input v-model="newFilterName" autofocus placeholder="筛选名称" @keydown.enter="createFilter" /><select v-model="newFilterStatus"><option value="active">进行中</option><option value="completed">已完成</option><option value="all">全部</option></select><select v-model="newFilterListId"><option value="any">任意清单</option><option value="inbox">收集箱</option><option v-for="list in sortedLists" :key="list.id" :value="list.id">{{ list.name }}</option></select><select v-model="newFilterPriority"><option value="any">任意优先级</option><option value="high">P1</option><option value="medium">P2</option><option value="low">P3</option><option value="none">无</option></select><select v-model="newFilterTagId"><option value="any">任意标签</option><option v-for="tag in tags" :key="tag.id" :value="tag.id">#{{ tag.name }}</option></select><select v-model="newFilterDue"><option value="any">任意日期</option><option value="today">今天</option><option value="overdue">已逾期</option><option value="next7">未来 7 天</option><option value="none">无日期</option></select><button @click="createFilter">✓</button></div><div v-for="filter in savedFilters" :key="filter.id" :class="['nav-item', { active: activeView === `filter:${filter.id}` }]" role="button" tabindex="0" @click="activeView = `filter:${filter.id}`"><span>⌕</span><span class="list-name">{{ filter.name }}</span><button class="inline-remove" aria-label="删除筛选" @click.stop="removeFilter(filter)">×</button></div></div>
       <div class="sidebar-section">
         <div class="section-title">我的清单 <button class="icon-button" aria-label="新建清单" @click.stop="listComposerOpen = !listComposerOpen">＋</button></div>
         <Transition name="composer"><div v-if="listComposerOpen" class="list-composer" @click.stop><input v-model="newListName" autofocus placeholder="清单名称" @keydown.enter="addList" @keydown.esc="listComposerOpen = false" /><button @click="addList">✓</button></div></Transition>
@@ -321,7 +353,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleShortcut))
       <div class="sidebar-footer"><div class="mini-progress"><div><span>今日进度</span><strong>{{ pendingCount ? Math.round(completedCount / (completedCount + pendingCount) * 100) : 100 }}%</strong></div><div class="progress-track"><span :style="{ width: `${pendingCount ? completedCount / (completedCount + pendingCount) * 100 : 100}%` }"></span></div></div><button class="nav-item muted" @click="settingsOpen = true"><span>⚙</span> 设置</button></div>
     </aside>
     <main class="main-content">
-      <header class="page-header"><Transition name="title" mode="out-in"><div :key="activeView"><p class="eyebrow">{{ viewHint }}</p><h1>{{ viewTitle }}</h1></div></Transition><div class="header-actions"><label class="search-box"><span>⌕</span><input v-model="search" placeholder="搜索任务" /></label></div></header>
+      <header class="page-header"><Transition name="title" mode="out-in"><div :key="activeView"><p class="eyebrow">{{ viewHint }}</p><h1>{{ viewTitle }}</h1></div></Transition><div class="header-actions"><label class="group-select"><span>分组</span><select v-model="groupBy"><option value="none">不分组</option><option value="list">按清单</option><option value="priority">按优先级</option><option value="tag">按标签</option></select></label><label class="search-box"><span>⌕</span><input v-model="search" placeholder="搜索任务" /></label></div></header>
       <section class="content-inner">
         <div class="quick-add"><span class="quick-icon">＋</span><input ref="quickInput" v-model="quickTitle" placeholder="添加一个任务，按 Enter 保存…" @keydown.enter="createTask()" /><span class="quick-hint">Enter</span></div>
         <Transition name="view" mode="out-in">
@@ -344,7 +376,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleShortcut))
           <section class="task-zone regular-zone" @dragover.prevent @drop.stop="dropTaskInZone(false)">
             <div v-if="pinnedTasks.length" class="task-zone-heading"><span>其他任务</span></div>
             <TransitionGroup name="task-row" tag="div" class="task-items">
-            <div v-for="task in regularTasks" :key="task.id" :class="['task-row', { 'drag-target': taskDropTargetId === task.id }]" :draggable="taskReorderEnabled" @dragstart="startTaskDrag($event, task)" @dragend="endTaskDrag" @dragover.prevent="taskDropTargetId = task.id" @drop.stop="dropTaskBefore(task)" @click="selectTask(task)">
+            <div v-for="task in groupedRegularTasks" :key="task.id" :class="['task-row', { 'drag-target': taskDropTargetId === task.id }]" :draggable="taskReorderEnabled && groupBy === 'none'" @dragstart="startTaskDrag($event, task)" @dragend="endTaskDrag" @dragover.prevent="taskDropTargetId = task.id" @drop.stop="dropTaskBefore(task)" @click="selectTask(task)">
               <button class="check" :class="{ checked: task.status === 'completed' }" @click.stop="toggleTask(task)">{{ task.status === 'completed' ? '✓' : '' }}</button><div class="task-main"><div class="task-title-line"><span :class="{ done: task.status === 'completed' }">{{ task.title }}</span><span v-if="task.priority !== 'none'" :class="['priority-badge', priorityClass(task.priority)]" :title="priorityLabel(task.priority)">♨ {{ priorityCode(task.priority) }}</span></div><div class="task-meta"><span v-if="task.dueDate" :class="{ overdue: task.status === 'active' && task.dueDate < todayIso }">◷ {{ dateLabel(task.dueDate) }}</span><span v-if="lists.find(list => list.id === task.listId)" class="list-meta"><i class="list-dot" :style="{ background: lists.find(list => list.id === task.listId)?.color || '#856AF9' }"></i>{{ lists.find(list => list.id === task.listId)?.name }}</span><span v-if="task.notes">▤ 有备注</span></div></div><div class="row-actions"><button class="icon-button" aria-label="任务操作" @click.stop="toggleTaskMenu(task.id)">···</button><div v-if="openTaskMenuId === task.id" class="popup-menu task-popup" @click.stop><button @click="setTaskPinned(task, true); closeMenus()">置顶任务</button><div class="menu-label">优先级</div><button v-for="priority in (['high','medium','low','none'] as TaskPriority[])" :key="priority" :class="{ selected: task.priority === priority }" @click="setTaskPriority(task, priority)">{{ priority === 'none' ? '无优先级' : `${priorityCode(priority)} · ${priorityLabel(priority)}` }}</button></div></div>
             </div>
             </TransitionGroup>
@@ -354,10 +386,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleShortcut))
         </Transition>
       </section>
     </main>
-    <Transition name="drawer"><div v-if="detailOpen && activeTask" class="drawer-layer"><div class="drawer-scrim" aria-hidden="true" @click="detailOpen = false"></div><aside class="detail-drawer"><header class="drawer-header"><span>任务详情</span><button class="icon-button" aria-label="关闭" @click="detailOpen = false">×</button></header><div class="drawer-body"><input v-if="detailDraft" v-model="detailDraft.title" class="title-input" placeholder="任务标题" /><div class="detail-status" @click="toggleTask(activeTask)"><button class="check" :class="{ checked: activeTask.status === 'completed' }">{{ activeTask.status === 'completed' ? '✓' : '' }}</button><span>{{ activeTask.status === 'completed' ? '已完成' : '标记为完成' }}</span></div><div class="subtasks"><div class="subtask-heading"><span>子任务 <small>{{ subtasks.filter(task => task.status === 'completed').length }}/{{ subtasks.length }}</small></span></div><div class="subtask-composer"><input v-model="newSubtaskTitle" placeholder="添加子任务…" @keydown.enter="addSubtask" /><button @click="addSubtask">＋</button></div><TransitionGroup name="subtask" tag="div" class="subtask-items"><div v-for="subtask in subtasks" :key="subtask.id" class="subtask-row"><button class="check mini" :class="{ checked: subtask.status === 'completed' }" @click="toggleTask(subtask)">{{ subtask.status === 'completed' ? '✓' : '' }}</button><span :class="{ done: subtask.status === 'completed' }">{{ subtask.title }}</span></div></TransitionGroup></div><label class="field"><span>清单</span><select v-if="detailDraft" v-model="detailDraft.listId"><option :value="null">无清单</option><option v-for="list in sortedLists" :key="list.id" :value="list.id">{{ list.name }}</option></select></label><label class="field"><span>截止日期</span><input v-if="detailDraft" v-model="detailDraft.dueDate" type="date" /></label><label class="field"><span>优先级</span><select v-if="detailDraft" v-model="detailDraft.priority"><option value="none">无优先级</option><option value="low">P3 · 低</option><option value="medium">P2 · 中</option><option value="high">P1 · 高</option></select></label><label class="field"><span>重复</span><select v-if="detailDraft" v-model="detailDraft.recurrence"><option value="none">不重复</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label><label v-if="detailDraft?.recurrence !== 'none'" class="field"><span>结束重复</span><input v-model="detailDraft.recurrenceEnd" type="date" /></label><label class="field notes-field"><span>备注</span><textarea v-if="detailDraft" v-model="detailDraft.notes" rows="5" placeholder="记录一些想法…"></textarea></label></div><footer class="drawer-footer"><button class="danger-link" @click="pendingDelete = activeTask">删除任务</button><button class="save-button" @click="saveDetail">保存更改</button></footer></aside></div></Transition>
+    <Transition name="drawer"><div v-if="detailOpen && activeTask" class="drawer-layer"><div class="drawer-scrim" aria-hidden="true" @click="detailOpen = false"></div><aside class="detail-drawer"><header class="drawer-header"><span>任务详情</span><button class="icon-button" aria-label="关闭" @click="detailOpen = false">×</button></header><div class="drawer-body"><input v-if="detailDraft" v-model="detailDraft.title" class="title-input" placeholder="任务标题" /><div class="detail-status" @click="toggleTask(activeTask)"><button class="check" :class="{ checked: activeTask.status === 'completed' }">{{ activeTask.status === 'completed' ? '✓' : '' }}</button><span>{{ activeTask.status === 'completed' ? '已完成' : '标记为完成' }}</span></div><div class="subtasks"><div class="subtask-heading"><span>子任务 <small>{{ subtasks.filter(task => task.status === 'completed').length }}/{{ subtasks.length }}</small></span></div><div class="subtask-composer"><input v-model="newSubtaskTitle" placeholder="添加子任务…" @keydown.enter="addSubtask" /><button @click="addSubtask">＋</button></div><TransitionGroup name="subtask" tag="div" class="subtask-items"><div v-for="subtask in subtasks" :key="subtask.id" class="subtask-row"><button class="check mini" :class="{ checked: subtask.status === 'completed' }" @click="toggleTask(subtask)">{{ subtask.status === 'completed' ? '✓' : '' }}</button><span :class="{ done: subtask.status === 'completed' }">{{ subtask.title }}</span></div></TransitionGroup></div><label class="field"><span>清单</span><select v-if="detailDraft" v-model="detailDraft.listId"><option :value="null">无清单</option><option v-for="list in sortedLists" :key="list.id" :value="list.id">{{ list.name }}</option></select></label><label class="field"><span>截止日期</span><input v-if="detailDraft" v-model="detailDraft.dueDate" type="date" /></label><label class="field"><span>截止时间</span><input v-if="detailDraft" v-model="detailDraft.dueTime" type="time" /></label><label class="field"><span>提醒</span><select v-if="detailDraft" v-model="detailDraft.reminderMinutesBefore"><option :value="null">不提醒</option><option :value="5">提前 5 分钟</option><option :value="15">提前 15 分钟</option><option :value="60">提前 1 小时</option><option :value="1440">提前 1 天</option></select></label><fieldset v-if="detailDraft" class="field tag-picker"><legend>标签</legend><label v-for="tag in tags" :key="tag.id"><input v-model="detailDraft.tagIds" type="checkbox" :value="tag.id"><span>#{{ tag.name }}</span></label></fieldset><label class="field"><span>优先级</span><select v-if="detailDraft" v-model="detailDraft.priority"><option value="none">无优先级</option><option value="low">P3 · 低</option><option value="medium">P2 · 中</option><option value="high">P1 · 高</option></select></label><label class="field"><span>重复</span><select v-if="detailDraft" v-model="detailDraft.recurrence"><option value="none">不重复</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label><label v-if="detailDraft?.recurrence !== 'none'" class="field"><span>结束重复</span><input v-model="detailDraft.recurrenceEnd" type="date" /></label><label class="field notes-field"><span>备注</span><textarea v-if="detailDraft" v-model="detailDraft.notes" rows="5" placeholder="记录一些想法…"></textarea></label></div><footer class="drawer-footer"><button class="danger-link" @click="pendingDelete = activeTask">删除任务</button><button class="save-button" @click="saveDetail">保存更改</button></footer></aside></div></Transition>
     <Transition name="dialog"><div v-if="pendingDelete" class="dialog-backdrop" @click.self="pendingDelete = null"><section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title"><div class="dialog-icon">!</div><h2 id="delete-title">删除这个任务？</h2><p>“{{ pendingDelete.title }}”及其子任务将被永久删除，此操作无法撤销。</p><div class="dialog-actions"><button class="cancel-button" @click="pendingDelete = null">取消</button><button class="delete-button" @click="removeTask(pendingDelete); pendingDelete = null">确认删除</button></div></section></div></Transition>
     <Transition name="dialog"><div v-if="pendingListDelete" class="dialog-backdrop" @click.self="pendingListDelete = null"><section class="confirm-dialog list-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-list-title"><div class="dialog-icon">!</div><h2 id="delete-list-title">删除清单“{{ pendingListDelete.name }}”？</h2><p>请选择如何处理清单中的任务。</p><label class="delete-policy"><input v-model="listDeletePolicy" type="radio" value="keep" /><span><strong>保留任务</strong><small>任务将转为“无清单”</small></span></label><label class="delete-policy danger-policy"><input v-model="listDeletePolicy" type="radio" value="delete" /><span><strong>同时删除任务</strong><small>清单中的任务和子任务将永久删除</small></span></label><div class="dialog-actions"><button class="cancel-button" @click="pendingListDelete = null">取消</button><button class="delete-button" @click="confirmListDelete">确认删除</button></div></section></div></Transition>
-    <Transition name="dialog"><div v-if="settingsOpen" class="dialog-backdrop" @click.self="settingsOpen = false"><section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header><div><p>Rumo-Flow</p><h2 id="settings-title">设置与数据</h2></div><button class="icon-button" aria-label="关闭设置" @click="settingsOpen = false">×</button></header><div class="settings-section"><div><strong>导出数据备份</strong><p>将清单、任务、子任务和重复规则保存为 JSON 文件。</p></div><button class="secondary-button" @click="exportBackup">导出备份</button></div><div class="settings-section"><div><strong>从备份恢复</strong><p>恢复前会自动保存当前数据；导入失败不会修改现有任务。</p></div><button class="secondary-button" @click="importBackup">选择文件</button></div><footer>数据仅保存在当前设备 · Rumo-Flow 0.3.1</footer></section></div></Transition>
-    <Transition name="toast"><div v-if="toast" class="toast">✓ {{ toast }}</div></Transition>
+    <Transition name="dialog"><div v-if="settingsOpen" class="dialog-backdrop" @click.self="settingsOpen = false"><section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header><div><p>Rumo-Flow</p><h2 id="settings-title">设置与数据</h2></div><button class="icon-button" aria-label="关闭设置" @click="settingsOpen = false">×</button></header><div class="settings-section"><div><strong>界面主题</strong><p>选择适合当前环境的明暗外观。</p></div><select v-model="settings.theme" @change="saveSettings"><option value="light">浅色</option><option value="dark">深色</option></select></div><div class="settings-section"><div><strong>内容密度</strong><p>舒适模式留白更多，紧凑模式显示更多任务。</p></div><select v-model="settings.density" @change="saveSettings"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></div><div class="settings-section"><div><strong>全局快捷键</strong><p>{{ desktopStatus.globalShortcutRegistered ? `已启用 ${desktopStatus.globalShortcut}` : `${desktopStatus.globalShortcut} 注册失败，请检查快捷键冲突` }}</p></div><button class="secondary-button" @click="shortcutsOpen = true">快捷键帮助</button></div><div class="settings-section"><div><strong>导出数据备份</strong><p>将清单、任务、标签、筛选和重复规则保存为 JSON。</p></div><button class="secondary-button" @click="exportBackup">导出备份</button></div><div class="settings-section"><div><strong>从备份恢复</strong><p>恢复前自动保存当前数据；v1/v2 备份均可导入。</p></div><button class="secondary-button" @click="importBackup">选择文件</button></div><footer>数据仅保存在当前设备 · Rumo-Flow</footer></section></div></Transition>
+    <Transition name="dialog"><div v-if="shortcutsOpen" class="dialog-backdrop" @click.self="shortcutsOpen = false"><section class="confirm-dialog shortcut-dialog"><h2>键盘快捷键</h2><div class="shortcut-row"><span>聚焦新任务</span><kbd>Ctrl N</kbd></div><div class="shortcut-row"><span>全局快速捕获</span><kbd>Ctrl Alt Space</kbd></div><div class="shortcut-row"><span>关闭浮层</span><kbd>Esc</kbd></div><div class="shortcut-row"><span>打开帮助</span><kbd>?</kbd></div><button class="save-button" @click="shortcutsOpen = false">知道了</button></section></div></Transition>
+    <Transition name="toast"><div v-if="toast" class="toast">✓ {{ toast }}<button v-if="toastAction" @click="runToastAction">{{ toastAction.label }}</button></div></Transition>
   </div>
 </template>

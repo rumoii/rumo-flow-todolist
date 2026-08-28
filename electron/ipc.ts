@@ -1,6 +1,6 @@
 import { dialog, ipcMain } from 'electron'
 import fs from 'node:fs/promises'
-import type { BackupPayload, CreateTaskInput, CreateTaskListInput, TaskQuery, UpdateTaskInput, UpdateTaskListInput } from '../src/shared/contracts'
+import type { BackupPayload, CreateSavedFilterInput, CreateTagInput, CreateTaskInput, CreateTaskListInput, TaskQuery, UpdateSavedFilterInput, UpdateTagInput, UpdateTaskInput, UpdateTaskListInput } from '../src/shared/contracts'
 import { Repository } from './database/repository'
 
 const repository = new Repository()
@@ -31,19 +31,33 @@ function parseBackup(input: BackupPayload | string): BackupPayload {
   return object<BackupPayload>(input, '备份数据')
 }
 
-export function registerIpcHandlers(): void {
+export function registerIpcHandlers(options: { onTasksChanged?: () => void; openQuickCapture?: () => void; desktopStatus?: () => { globalShortcut: string; globalShortcutRegistered: boolean }; onSettingsChanged?: () => void } = {}): void {
+  const changed = <T>(value: T): T => { options.onTasksChanged?.(); return value }
   ipcMain.handle('tasks:list', (_event, query) => repository.listTasks((query ?? {}) as TaskQuery))
-  ipcMain.handle('tasks:create', (_event, input) => repository.createTask(object<CreateTaskInput>(input, '任务')))
-  ipcMain.handle('tasks:update', (_event, taskId, input) => repository.updateTask(text(taskId, '任务编号'), object<UpdateTaskInput>(input, '任务')))
-  ipcMain.handle('tasks:complete', (_event, taskId) => repository.completeTask(text(taskId, '任务编号')))
-  ipcMain.handle('tasks:restore', (_event, taskId) => repository.restoreTask(text(taskId, '任务编号')))
-  ipcMain.handle('tasks:remove', (_event, taskId) => repository.removeTask(text(taskId, '任务编号')))
+  ipcMain.handle('tasks:create', (_event, input) => changed(repository.createTask(object<CreateTaskInput>(input, '任务'))))
+  ipcMain.handle('tasks:update', (_event, taskId, input) => changed(repository.updateTask(text(taskId, '任务编号'), object<UpdateTaskInput>(input, '任务'))))
+  ipcMain.handle('tasks:complete', (_event, taskId) => changed(repository.completeTask(text(taskId, '任务编号'))))
+  ipcMain.handle('tasks:restore', (_event, taskId) => changed(repository.restoreTask(text(taskId, '任务编号'))))
+  ipcMain.handle('tasks:remove', (_event, taskId) => changed(repository.removeTask(text(taskId, '任务编号'))))
+  ipcMain.handle('tasks:restore-removed', (_event, taskId) => changed(repository.restoreRemoved(text(taskId, '任务编号'))))
   ipcMain.handle('tasks:reorder', (_event, taskIds) => repository.reorderTasks(ids(taskIds, '任务顺序')))
   ipcMain.handle('lists:list', () => repository.listLists())
   ipcMain.handle('lists:create', (_event, input) => repository.createList(object<CreateTaskListInput>(input, '清单')))
   ipcMain.handle('lists:update', (_event, listId, input) => repository.updateList(text(listId, '清单编号'), object<UpdateTaskListInput>(input, '清单')))
   ipcMain.handle('lists:remove', (_event, listId, options) => repository.removeList(text(listId, '清单编号'), taskPolicy(object<{ taskPolicy?: unknown }>(options ?? {}, '删除选项').taskPolicy)))
   ipcMain.handle('lists:reorder', (_event, listIds) => repository.reorderLists(ids(listIds, '清单顺序')))
+  ipcMain.handle('tags:list', () => repository.listTags())
+  ipcMain.handle('tags:create', (_event, input) => repository.createTag(object<CreateTagInput>(input, '标签')))
+  ipcMain.handle('tags:update', (_event, tagId, input) => repository.updateTag(text(tagId, '标签编号'), object<UpdateTagInput>(input, '标签')))
+  ipcMain.handle('tags:remove', (_event, tagId) => repository.removeTag(text(tagId, '标签编号')))
+  ipcMain.handle('filters:list', () => repository.listSavedFilters())
+  ipcMain.handle('filters:create', (_event, input) => repository.createSavedFilter(object<CreateSavedFilterInput>(input, '筛选')))
+  ipcMain.handle('filters:update', (_event, filterId, input) => repository.updateSavedFilter(text(filterId, '筛选编号'), object<UpdateSavedFilterInput>(input, '筛选')))
+  ipcMain.handle('filters:remove', (_event, filterId) => repository.removeSavedFilter(text(filterId, '筛选编号')))
+  ipcMain.handle('settings:get', () => repository.getSettings())
+  ipcMain.handle('settings:update', (_event, input) => { const result = repository.updateSettings(object(input, '设置')); options.onSettingsChanged?.(); return result })
+  ipcMain.handle('desktop:status', () => options.desktopStatus?.() ?? { globalShortcut: repository.getSettings().globalShortcut, globalShortcutRegistered: false })
+  ipcMain.handle('desktop:open-quick-capture', () => options.openQuickCapture?.())
   ipcMain.handle('backup:export', async () => {
     const payload = repository.exportBackup()
     const result = await dialog.showSaveDialog({ title: '导出 Rumo-Flow 备份', defaultPath: `rumo-flow-${payload.exportedAt.slice(0, 10)}.json`, filters: [{ name: 'JSON 备份', extensions: ['json'] }] })
@@ -58,6 +72,8 @@ export function registerIpcHandlers(): void {
       if (result.canceled || !result.filePaths[0]) return null
       payload = JSON.parse(await fs.readFile(result.filePaths[0], 'utf8')) as BackupPayload
     } else payload = parseBackup(input)
-    return repository.importBackup(payload)
+    const result = repository.importBackup(payload)
+    options.onTasksChanged?.()
+    return result
   })
 }

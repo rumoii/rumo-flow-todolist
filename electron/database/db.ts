@@ -97,6 +97,48 @@ function migrate(database: Database.Database): void {
       database.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(4, new Date().toISOString())
     })()
   }
+  if ((applied?.version ?? 0) < 5) {
+    database.transaction(() => {
+      database.exec(`
+        ALTER TABLE tasks ADD COLUMN due_time TEXT;
+        ALTER TABLE tasks ADD COLUMN reminder_minutes_before INTEGER;
+        ALTER TABLE tasks ADD COLUMN reminder_notified_at TEXT;
+        ALTER TABLE tasks ADD COLUMN deleted_at TEXT;
+        CREATE INDEX IF NOT EXISTS idx_tasks_reminder ON tasks(status, deleted_at, due_date, due_time, reminder_notified_at);
+        CREATE INDEX IF NOT EXISTS idx_tasks_deleted ON tasks(deleted_at);
+      `)
+      database.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(5, new Date().toISOString())
+    })()
+  }
+  if ((applied?.version ?? 0) < 6) {
+    database.transaction(() => {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS tags (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+          color TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS task_tags (
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+          PRIMARY KEY(task_id, tag_id)
+        );
+        CREATE TABLE IF NOT EXISTS saved_filters (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          criteria_json TEXT NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag_id, task_id);
+        CREATE INDEX IF NOT EXISTS idx_saved_filters_order ON saved_filters(sort_order, name);
+      `)
+      database.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(6, new Date().toISOString())
+    })()
+  }
 }
 
 export function closeDatabase(): void {
