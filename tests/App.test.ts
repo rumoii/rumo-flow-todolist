@@ -154,8 +154,12 @@ describe('App critical interactions', () => {
     await wrapper.find('.task-row .task-main').trigger('click')
     expect(wrapper.find('.detail-drawer').exists()).toBe(true)
     await wrapper.find('.title-input').setValue('改名后的任务')
+    const reminderSelect = wrapper.findAll('[role="combobox"]').find(select => select.attributes('aria-label') === '任务提醒')!
+    await reminderSelect.trigger('click')
+    const hourOption = wrapper.findAll('[role="option"]').find(option => option.text().includes('提前 1 小时'))!
+    await hourOption.trigger('click')
     await wrapper.find('.save-button').trigger('click')
-    expect(api.tasks.update).toHaveBeenCalledWith('task-1', expect.objectContaining({ title: '改名后的任务' }))
+    expect(api.tasks.update).toHaveBeenCalledWith('task-1', expect.objectContaining({ title: '改名后的任务', reminderMinutesBefore: 60 }))
   })
 
   it('filters by a task tag without opening task details', async () => {
@@ -248,7 +252,17 @@ describe('App critical interactions', () => {
     await wrapper.find('.task-row .task-main').trigger('click')
 
     const subtasks = wrapper.find('.subtasks').element
-    const firstField = wrapper.find('.field').element
+    const firstField = wrapper.find('.detail-card .field').element
     expect(subtasks.compareDocumentPosition(firstField) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('groups task details into clear cards', async () => {
+    const api = createApi()
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+    await wrapper.find('.task-row .task-main').trigger('click')
+    expect(wrapper.findAll('.detail-card')).toHaveLength(5)
+    expect(wrapper.findAll('.detail-card h3').map(heading => heading.text())).toEqual(['子任务', '计划信息', '组织信息', '重复', '备注'])
   })
 })

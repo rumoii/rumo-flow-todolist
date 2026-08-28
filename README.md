@@ -48,7 +48,7 @@ pnpm package         # 构建 Windows 安装包
 
 ## 安装包
 
-Windows 安装包在 GitHub Releases 提供，不纳入源码仓库。当前 `v0.5.1` 安装包为未签名版本，Windows SmartScreen 可能显示提示；请从项目 Release 页面下载并核对发布页提供的 SHA-256 校验值。
+Windows 安装包在 GitHub Releases 提供，不纳入源码仓库。当前 `v0.5.2` 安装包为未签名版本，Windows SmartScreen 可能显示提示；请从项目 Release 页面下载并核对发布页提供的 SHA-256 校验值。
 
 ## 数据与备份
 
