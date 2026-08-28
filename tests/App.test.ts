@@ -122,6 +122,25 @@ describe('App critical interactions', () => {
     expect(wrapper.text()).toContain('整理会议纪要')
   })
 
+  it('keeps today count and list in sync for an undated custom-list task', async () => {
+    const api = createApi([])
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+
+    const listButton = wrapper.findAll('.nav-item').find((button) => button.text().includes('工作'))
+    await listButton!.trigger('click')
+    await wrapper.find('.quick-add input').setValue('开学前任务')
+    await wrapper.find('.quick-add input').trigger('keydown.enter')
+    await flushPromises()
+
+    const todayButton = wrapper.findAll('.nav-item').find((button) => button.text().includes('今天'))!
+    await todayButton.trigger('click')
+    expect(todayButton.find('em').text()).toBe('1')
+    expect(wrapper.text()).toContain('开学前任务')
+    expect(wrapper.text()).toContain('未安排日期')
+  })
+
   it('creates an unknown Quick Add tag and binds it to the new task', async () => {
     const api = createApi([])
     window.todoApi = api

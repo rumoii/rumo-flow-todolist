@@ -250,6 +250,19 @@ test('renders the branded quick capture panel without overflow', async ({ page }
   await expect(page.getByText('已加入收集箱')).toBeVisible()
 })
 
+test('keeps the today count and task list in sync for undated list tasks', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('.list-items .nav-item').filter({ hasText: '工作' }).click()
+  await page.getByPlaceholder('添加一个任务，按 Enter 保存…').fill('清单无日期任务')
+  await page.getByPlaceholder('添加一个任务，按 Enter 保存…').press('Enter')
+
+  const todayButton = page.locator('.nav-group .nav-item').filter({ hasText: '今天' })
+  await expect(todayButton.locator('em')).toHaveText('2')
+  await todayButton.click()
+  await expect(page.getByText('清单无日期任务')).toBeVisible()
+  await expect(page.getByText('未安排日期')).toBeVisible()
+})
+
 test('creates tags from Quick Add and details, then filters without opening details', async ({ page }) => {
   await page.goto('/')
   const quickInput = page.getByPlaceholder('添加一个任务，按 Enter 保存…')

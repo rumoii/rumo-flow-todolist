@@ -25,4 +25,6 @@
 
 :root[data-theme="dark"] .select-field__trigger,:root[data-theme="dark"] .select-field__menu{background:#24222c;color:#eeeaf5;border-color:#484352}:root[data-theme="dark"] .select-field__menu{box-shadow:0 14px 30px rgba(0,0,0,.35)}:root[data-theme="dark"] .select-field__option{color:#d7d2df}:root[data-theme="dark"] .select-field__option.active{background:#352f4b;color:#c9beff}:root[data-theme="dark"] .select-field__option.selected{color:#c9beff}:root[data-theme="dark"] .drawer-body{background:#19181f}:root[data-theme="dark"] .detail-card{background:#24222c;border-color:#3b3745;box-shadow:none}:root[data-theme="dark"] .detail-card__header h3{color:#f2eef8}:root[data-theme="dark"] .detail-status:hover{background:#302a45}:root[data-theme="dark"] .detail-card .field{border-color:#393541}:root[data-theme="dark"] .detail-card .field input,:root[data-theme="dark"] .detail-card .subtask-composer,:root[data-theme="dark"] .detail-card .tag-search-row input,:root[data-theme="dark"] .notes-card textarea{background:#1e1c24;color:#f2eef8;border-color:#45404e}:root[data-theme="dark"] .drawer-footer{background:#211f28;box-shadow:0 -7px 18px rgba(0,0,0,.16)}
 
+.task-meta .undated-meta{color:#b8b8c2}
+
 @media (max-width:1080px){.detail-drawer{width:400px}}
