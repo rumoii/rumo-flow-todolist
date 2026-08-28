@@ -4,4 +4,6 @@ import QuickCapture from './QuickCapture.vue'
 import './styles.css'
 import './motion.css'
 
-createApp(new URLSearchParams(location.search).get('capture') === '1' ? QuickCapture : App).mount('#app')
+const isQuickCapture = new URLSearchParams(location.search).get('capture') === '1'
+if (isQuickCapture) document.documentElement.classList.add('capture-page')
+createApp(isQuickCapture ? QuickCapture : App).mount('#app')

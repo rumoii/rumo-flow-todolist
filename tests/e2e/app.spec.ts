@@ -238,6 +238,18 @@ test('uses unified motion tokens and honors reduced-motion preferences', async (
   expect(Number.parseFloat(reducedDuration)).toBeLessThanOrEqual(0.00001)
 })
 
+test('renders the branded quick capture panel without overflow', async ({ page }) => {
+  await page.goto('/?capture=1')
+  await expect(page.locator('.capture-card')).toBeVisible()
+  await expect(page.getByText('快速捕获')).toBeVisible()
+  const dimensions = await page.evaluate(() => ({ bodyWidth: document.body.scrollWidth, viewportWidth: window.innerWidth, bodyHeight: document.body.scrollHeight, viewportHeight: window.innerHeight }))
+  expect(dimensions.bodyWidth).toBeLessThanOrEqual(dimensions.viewportWidth)
+  expect(dimensions.bodyHeight).toBeLessThanOrEqual(dimensions.viewportHeight)
+  await page.getByRole('textbox', { name: '快速捕获任务' }).fill('浏览器快速捕获 #验收')
+  await page.getByRole('textbox', { name: '快速捕获任务' }).press('Enter')
+  await expect(page.getByText('已加入收集箱')).toBeVisible()
+})
+
 test('creates tags from Quick Add and details, then filters without opening details', async ({ page }) => {
   await page.goto('/')
   const quickInput = page.getByPlaceholder('添加一个任务，按 Enter 保存…')
