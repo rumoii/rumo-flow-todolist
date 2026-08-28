@@ -105,6 +105,39 @@ test('keeps the core layout usable at a narrow desktop window', async ({ page })
   expect(bodyWidth).toBeLessThanOrEqual(1024)
 })
 
+test('keeps weekly task titles horizontal and removes the unused account placeholder', async ({ page }) => {
+  await page.goto('/')
+  const quickInput = page.getByPlaceholder('添加一个任务，按 Enter 保存…')
+  await quickInput.fill('系统升级平台要升级这是一个很长的周任务标题')
+  await quickInput.press('Enter')
+  await page.getByRole('button', { name: '本周' }).click()
+
+  const card = page.locator('.task-card').filter({ hasText: '系统升级平台要升级' })
+  const title = card.locator('.task-title')
+  await expect(card).toBeVisible()
+  await expect(page.locator('.avatar')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '设置' })).toBeVisible()
+
+  const titleStyle = await title.evaluate((element) => {
+    const styles = getComputedStyle(element)
+    return {
+      lineClamp: styles.getPropertyValue('-webkit-line-clamp'),
+      lineHeight: Number.parseFloat(styles.lineHeight),
+      wordBreak: styles.wordBreak,
+      box: element.getBoundingClientRect().toJSON(),
+    }
+  })
+  expect(titleStyle.lineClamp).toBe('2')
+  expect(titleStyle.wordBreak).toBe('normal')
+  expect(titleStyle.box.width).toBeGreaterThan(titleStyle.box.height)
+  expect(titleStyle.box.height).toBeLessThanOrEqual(titleStyle.lineHeight * 2 + 1)
+
+  const priorityCard = page.locator('.task-card').filter({ hasText: '验收初始任务' })
+  const cardBox = await priorityCard.boundingBox()
+  const badgeBox = await priorityCard.locator('.priority-badge').boundingBox()
+  expect(badgeBox!.x + badgeBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width)
+})
+
 test('pins tasks, changes priority and exposes subtasks near the top of details', async ({ page }) => {
   await page.goto('/')
   const taskRow = page.locator('.task-row').filter({ hasText: '验收初始任务' })

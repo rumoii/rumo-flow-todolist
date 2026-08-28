@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, Menu, shell } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { closeDatabase, getDatabase } from './database/db'
@@ -35,6 +35,7 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null)
   getDatabase()
   registerIpcHandlers()
   createWindow()

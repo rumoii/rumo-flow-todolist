@@ -44,7 +44,7 @@ pnpm package         # Build the Windows installer
 
 ## Installer
 
-The Windows installer is published as a GitHub Release instead of being committed to the source repository. The current `v0.3.0` installer is unsigned, so Windows SmartScreen may display a warning. Download it from the project Release page and verify the SHA-256 value published with the release.
+The Windows installer is published as a GitHub Release instead of being committed to the source repository. The current `v0.3.1` installer is unsigned, so Windows SmartScreen may display a warning. Download it from the project Release page and verify the SHA-256 value published with the release.
 
 ## Data and backups
 
