@@ -6,6 +6,7 @@ test.beforeEach(async ({ page }) => {
     const today = now.toISOString().slice(0, 10)
     const timestamp = now.toISOString()
     const lists = [{ id: 'list-work', name: '工作', color: '#856AF9', sortOrder: 0, isPinned: false, createdAt: timestamp, updatedAt: timestamp }]
+    const tags: Array<{ id: string; name: string; color: string | null; createdAt: string; updatedAt: string }> = []
     const tasks = [{ id: 'seed-task', title: '验收初始任务', listId: 'list-work', dueDate: today, dueTime: null, reminderMinutesBefore: null, priority: 'high', notes: '浏览器验收', status: 'active', sortOrder: 0, isPinned: false, parentTaskId: null, recurrenceRuleId: null, deletedAt: null, tags: [], createdAt: timestamp, updatedAt: timestamp, completedAt: null }]
     const byId = (id: string) => tasks.find((task) => task.id === id)
 
@@ -15,14 +16,18 @@ test.beforeEach(async ({ page }) => {
         tasks: {
           list: async () => tasks.map((task) => ({ ...task })),
           create: async (input: Record<string, unknown>) => {
-            const task = { id: crypto.randomUUID(), status: 'active', sortOrder: tasks.length, isPinned: false, parentTaskId: null, recurrenceRuleId: null, deletedAt: null, tags: [], dueTime: null, reminderMinutesBefore: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null, notes: '', priority: 'none', listId: null, dueDate: null, ...input }
+            const tagIds = (input.tagIds as string[] | undefined) ?? []
+            const task = { id: crypto.randomUUID(), status: 'active', sortOrder: tasks.length, isPinned: false, parentTaskId: null, recurrenceRuleId: null, deletedAt: null, tags: tags.filter((tag) => tagIds.includes(tag.id)), dueTime: null, reminderMinutesBefore: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null, notes: '', priority: 'none', listId: null, dueDate: null, ...input }
+            delete (task as Record<string, unknown>).tagIds
             tasks.push(task as typeof tasks[number])
             return { ...task }
           },
           update: async (id: string, input: Record<string, unknown>) => {
             const task = byId(id)
             if (!task) throw new Error('missing task')
-            Object.assign(task, input, { updatedAt: new Date().toISOString() })
+            const tagIds = input.tagIds as string[] | undefined
+            Object.assign(task, input, tagIds ? { tags: tags.filter((tag) => tagIds.includes(tag.id)) } : {}, { updatedAt: new Date().toISOString() })
+            delete (task as Record<string, unknown>).tagIds
             return { ...task }
           },
           complete: async (id: string) => {
@@ -40,7 +45,26 @@ test.beforeEach(async ({ page }) => {
           restoreRemoved: async () => undefined,
           reorder: async (ids: string[]) => ids.forEach((id, index) => { const task = byId(id); if (task) task.sortOrder = index }),
         },
-        tags: { list: async () => [], create: async (input: Record<string, unknown>) => ({ id: crypto.randomUUID(), color: null, createdAt: timestamp, updatedAt: timestamp, ...input }), update: async () => ({}), remove: async () => undefined },
+        tags: {
+          list: async () => tags.map((tag) => ({ ...tag })),
+          create: async (input: Record<string, unknown>) => {
+            const tag = { id: crypto.randomUUID(), name: String(input.name), color: (input.color as string | null | undefined) ?? null, createdAt: timestamp, updatedAt: timestamp }
+            tags.push(tag)
+            return { ...tag }
+          },
+          update: async (id: string, input: Record<string, unknown>) => {
+            const tag = tags.find((item) => item.id === id)
+            if (!tag) throw new Error('missing tag')
+            Object.assign(tag, input, { updatedAt: new Date().toISOString() })
+            tasks.forEach((task) => task.tags.filter((item) => item.id === id).forEach((item) => Object.assign(item, tag)))
+            return { ...tag }
+          },
+          remove: async (id: string) => {
+            const index = tags.findIndex((tag) => tag.id === id)
+            if (index >= 0) tags.splice(index, 1)
+            tasks.forEach((task) => { task.tags = task.tags.filter((tag) => tag.id !== id) })
+          },
+        },
         filters: { list: async () => [], create: async (input: Record<string, unknown>) => ({ id: crypto.randomUUID(), sortOrder: 0, createdAt: timestamp, updatedAt: timestamp, ...input }), update: async () => ({}), remove: async () => undefined },
         settings: { get: async () => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space' }), update: async (input: Record<string, unknown>) => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', ...input }) },
         desktop: { status: async () => ({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: true }), openQuickCapture: async () => undefined, onFocusQuickAdd: () => () => undefined },
@@ -87,7 +111,7 @@ test('creates, completes and edits a task without console or page errors', async
   await expect(page.getByText('浏览器新增任务')).toBeVisible()
 
   const newTaskRow = page.locator('.task-row').filter({ hasText: '浏览器新增任务' })
-  await newTaskRow.click()
+  await newTaskRow.locator('.task-main').click()
   await expect(page.getByText('任务详情')).toBeVisible()
   await page.locator('.title-input').fill('浏览器编辑任务')
   await page.getByRole('button', { name: '保存更改' }).click()
@@ -154,7 +178,7 @@ test('pins tasks, changes priority and exposes subtasks near the top of details'
   await page.getByRole('button', { name: /P3/ }).click()
   await expect(page.locator('.pinned-zone').getByText('P3')).toBeVisible()
 
-  await page.locator('.pinned-zone').getByText('验收初始任务').click()
+  await page.locator('.pinned-zone').locator('.task-main').filter({ hasText: '验收初始任务' }).click()
   const subtaskComposer = page.getByPlaceholder('添加子任务…')
   await expect(subtaskComposer).toBeVisible()
   const composerBox = await subtaskComposer.boundingBox()
@@ -209,4 +233,24 @@ test('uses unified motion tokens and honors reduced-motion preferences', async (
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const reducedDuration = await page.locator('.primary-action').evaluate((element) => getComputedStyle(element).transitionDuration)
   expect(Number.parseFloat(reducedDuration)).toBeLessThanOrEqual(0.00001)
+})
+
+test('creates tags from Quick Add and details, then filters without opening details', async ({ page }) => {
+  await page.goto('/')
+  const quickInput = page.getByPlaceholder('添加一个任务，按 Enter 保存…')
+  await quickInput.fill('标签验收任务 #研发')
+  await quickInput.press('Enter')
+
+  const taggedRow = page.locator('.task-row').filter({ hasText: '标签验收任务' })
+  await expect(taggedRow.getByRole('button', { name: '#研发' })).toBeVisible()
+  await taggedRow.getByRole('button', { name: '#研发' }).click()
+  await expect(page.getByText('当前标签：#研发')).toBeVisible()
+  await expect(page.getByText('任务详情')).toHaveCount(0)
+
+  await taggedRow.locator('.task-main').click()
+  await page.getByPlaceholder('搜索或输入新标签').fill('重点')
+  await page.getByRole('button', { name: /创建并添加“重点”/ }).click()
+  await page.getByRole('button', { name: '保存更改' }).click()
+  await page.getByRole('button', { name: '关闭' }).click()
+  await expect(taggedRow.getByRole('button', { name: '#重点' })).toBeVisible()
 })

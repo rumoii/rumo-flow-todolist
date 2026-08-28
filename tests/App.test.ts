@@ -2,7 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App.vue'
-import type { Task, TaskList, TodoApi } from '../src/shared/contracts'
+import type { Tag, Task, TaskList, TodoApi } from '../src/shared/contracts'
 
 const makeTask = (overrides: Partial<Task> = {}): Task => ({
   id: 'task-1',
@@ -36,13 +36,23 @@ const list: TaskList = {
   updatedAt: '2026-01-01T00:00:00.000Z',
 }
 
-function createApi(seed: Task[] = [makeTask()]): TodoApi {
+const makeTag = (overrides: Partial<Tag> = {}): Tag => ({
+  id: 'tag-1',
+  name: '工作',
+  color: '#856AF9',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+  ...overrides,
+})
+
+function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = []): TodoApi {
   const tasks = [...seed]
+  const tags = [...seedTags]
   return {
     tasks: {
       list: vi.fn(async () => tasks.map((task) => ({ ...task }))),
       create: vi.fn(async (input) => {
-        const task = makeTask({ id: `task-${tasks.length + 1}`, ...input, priority: input.priority ?? 'none', notes: input.notes ?? '' })
+        const task = makeTask({ id: `task-${tasks.length + 1}`, ...input, priority: input.priority ?? 'none', notes: input.notes ?? '', tags: tags.filter((tag) => input.tagIds?.includes(tag.id)) })
         tasks.push(task)
         return { ...task }
       }),
@@ -72,6 +82,23 @@ function createApi(seed: Task[] = [makeTask()]): TodoApi {
       remove: vi.fn(async () => undefined),
       reorder: vi.fn(async () => undefined),
     },
+    tags: {
+      list: vi.fn(async () => tags.map((tag) => ({ ...tag }))),
+      create: vi.fn(async (input) => {
+        const tag = makeTag({ id: `tag-${tags.length + 1}`, ...input })
+        tags.push(tag)
+        return { ...tag }
+      }),
+      update: vi.fn(async (id, input) => {
+        const index = tags.findIndex((tag) => tag.id === id)
+        tags[index] = { ...tags[index], ...input, updatedAt: new Date().toISOString() }
+        return { ...tags[index] }
+      }),
+      remove: vi.fn(async (id) => {
+        const index = tags.findIndex((tag) => tag.id === id)
+        if (index >= 0) tags.splice(index, 1)
+      }),
+    },
     backup: {
       export: vi.fn(),
       import: vi.fn(),
@@ -95,6 +122,19 @@ describe('App critical interactions', () => {
     expect(wrapper.text()).toContain('整理会议纪要')
   })
 
+  it('creates an unknown Quick Add tag and binds it to the new task', async () => {
+    const api = createApi([])
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+    await wrapper.find('.quick-add input').setValue('整理会议纪要 #会议')
+    await wrapper.find('.quick-add input').trigger('keydown.enter')
+    await flushPromises()
+    expect(api.tags.create).toHaveBeenCalledWith(expect.objectContaining({ name: '会议' }))
+    expect(api.tasks.create).toHaveBeenCalledWith(expect.objectContaining({ title: '整理会议纪要', tagIds: ['tag-1'] }))
+    expect(wrapper.text()).toContain('#会议')
+  })
+
   it('toggles completion through the checkbox and reports success', async () => {
     const api = createApi()
     window.todoApi = api
@@ -102,6 +142,7 @@ describe('App critical interactions', () => {
     await flushPromises()
     await wrapper.find('.task-row .check').trigger('click')
     expect(api.tasks.complete).toHaveBeenCalledWith('task-1')
+    expect(wrapper.find('.detail-drawer').exists()).toBe(false)
     expect(wrapper.text()).toContain('已完成')
   })
 
@@ -110,11 +151,39 @@ describe('App critical interactions', () => {
     window.todoApi = api
     const wrapper = mount(App)
     await flushPromises()
-    await wrapper.find('.task-row').trigger('click')
+    await wrapper.find('.task-row .task-main').trigger('click')
     expect(wrapper.find('.detail-drawer').exists()).toBe(true)
     await wrapper.find('.title-input').setValue('改名后的任务')
     await wrapper.find('.save-button').trigger('click')
     expect(api.tasks.update).toHaveBeenCalledWith('task-1', expect.objectContaining({ title: '改名后的任务' }))
+  })
+
+  it('filters by a task tag without opening task details', async () => {
+    const workTag = makeTag()
+    const privateTag = makeTag({ id: 'tag-2', name: '个人' })
+    const api = createApi([makeTask({ title: '工作任务', tags: [workTag] }), makeTask({ id: 'task-2', title: '个人任务', tags: [privateTag] })], [workTag, privateTag])
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+    await wrapper.find('.task-tag').trigger('click')
+    expect(wrapper.find('.detail-drawer').exists()).toBe(false)
+    expect(wrapper.text()).toContain('当前标签：#工作')
+    expect(wrapper.text()).toContain('工作任务')
+    expect(wrapper.text()).not.toContain('个人任务')
+  })
+
+  it('creates and selects a tag from task details', async () => {
+    const api = createApi()
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+    await wrapper.find('.task-row .task-main').trigger('click')
+    await wrapper.find('.tag-search-row input').setValue('新标签')
+    await wrapper.find('.tag-create-button').trigger('click')
+    await flushPromises()
+    expect(api.tags.create).toHaveBeenCalledWith(expect.objectContaining({ name: '新标签' }))
+    await wrapper.find('.save-button').trigger('click')
+    expect(api.tasks.update).toHaveBeenCalledWith('task-1', expect.objectContaining({ tagIds: ['tag-1'] }))
   })
 
   it('shows the completed view only for completed tasks', async () => {
@@ -176,7 +245,7 @@ describe('App critical interactions', () => {
     window.todoApi = api
     const wrapper = mount(App)
     await flushPromises()
-    await wrapper.find('.task-row').trigger('click')
+    await wrapper.find('.task-row .task-main').trigger('click')
 
     const subtasks = wrapper.find('.subtasks').element
     const firstField = wrapper.find('.field').element
