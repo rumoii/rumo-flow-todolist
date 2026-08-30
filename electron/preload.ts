@@ -24,6 +24,15 @@ const api: TodoApi = {
     update: (id, input) => ipcRenderer.invoke('filters:update', id, input),
     remove: (id) => ipcRenderer.invoke('filters:remove', id)
   },
+  flow: {
+    getDay: (date) => ipcRenderer.invoke('flow:get-day', date),
+    saveReview: (input) => ipcRenderer.invoke('flow:save-review', input),
+    createVideo: (input) => ipcRenderer.invoke('flow:create-video', input),
+    updateVideo: (id, input) => ipcRenderer.invoke('flow:update-video', id, input),
+    removeVideo: (id) => ipcRenderer.invoke('flow:remove-video', id),
+    month: (month) => ipcRenderer.invoke('flow:month', month),
+    summary: (days) => ipcRenderer.invoke('flow:summary', days)
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     update: (input) => ipcRenderer.invoke('settings:update', input)
@@ -31,7 +40,9 @@ const api: TodoApi = {
   desktop: {
     status: () => ipcRenderer.invoke('desktop:status'),
     openQuickCapture: () => ipcRenderer.invoke('desktop:open-quick-capture'),
-    onFocusQuickAdd: (callback) => { const listener = (_event: Electron.IpcRendererEvent, taskId?: string) => callback(taskId); ipcRenderer.on('desktop:focus-quick-add', listener); return () => ipcRenderer.removeListener('desktop:focus-quick-add', listener) }
+    openExternal: (url) => ipcRenderer.invoke('desktop:open-external', url),
+    onFocusQuickAdd: (callback) => { const listener = (_event: Electron.IpcRendererEvent, taskId?: string) => callback(taskId); ipcRenderer.on('desktop:focus-quick-add', listener); return () => ipcRenderer.removeListener('desktop:focus-quick-add', listener) },
+    onOpenFlow: (callback) => { const listener = () => callback(); ipcRenderer.on('desktop:open-flow', listener); return () => ipcRenderer.removeListener('desktop:open-flow', listener) }
   },
   lists: {
     list: () => ipcRenderer.invoke('lists:list'),

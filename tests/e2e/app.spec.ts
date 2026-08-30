@@ -8,6 +8,8 @@ test.beforeEach(async ({ page }) => {
     const lists = [{ id: 'list-work', name: '工作', color: '#856AF9', sortOrder: 0, isPinned: false, createdAt: timestamp, updatedAt: timestamp }]
     const tags: Array<{ id: string; name: string; color: string | null; createdAt: string; updatedAt: string }> = []
     const tasks = [{ id: 'seed-task', title: '验收初始任务', listId: 'list-work', dueDate: today, dueTime: null, reminderMinutesBefore: null, priority: 'high', notes: '浏览器验收', status: 'active', sortOrder: 0, isPinned: false, parentTaskId: null, recurrenceRuleId: null, deletedAt: null, tags: [], createdAt: timestamp, updatedAt: timestamp, completedAt: null }]
+    const flowReview = { date: today, videoLimit: 3, didWell: '', didNotWell: '', reflection: '', inputType: 'none', inputVideoId: null, inputText: '', outputText: '', tomorrowExpectation: '', savedAt: null as string | null, createdAt: timestamp, updatedAt: timestamp }
+    const flowVideos: Array<{ id: string; date: string; title: string; sourceUrl: string; sourcePlatform: string; author: string; thought: string; createdAt: string; updatedAt: string }> = []
     const byId = (id: string) => tasks.find((task) => task.id === id)
 
     Object.defineProperty(window, 'todoApi', {
@@ -66,8 +68,17 @@ test.beforeEach(async ({ page }) => {
           },
         },
         filters: { list: async () => [], create: async (input: Record<string, unknown>) => ({ id: crypto.randomUUID(), sortOrder: 0, createdAt: timestamp, updatedAt: timestamp, ...input }), update: async () => ({}), remove: async () => undefined },
-        settings: { get: async () => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space' }), update: async (input: Record<string, unknown>) => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', ...input }) },
-        desktop: { status: async () => ({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: true }), openQuickCapture: async () => undefined, onFocusQuickAdd: () => () => undefined },
+        flow: {
+          getDay: async () => ({ review: { ...flowReview }, videos: flowVideos.map((video) => ({ ...video })) }),
+          createVideo: async (input: { date: string; title: string; sourceUrl: string; author?: string }) => { const video = { id: crypto.randomUUID(), date: input.date, title: input.title, sourceUrl: input.sourceUrl, sourcePlatform: '抖音', author: input.author ?? '', thought: '', createdAt: timestamp, updatedAt: timestamp }; flowVideos.push(video); return { ...video } },
+          updateVideo: async (id: string, input: Record<string, unknown>) => { const video = flowVideos.find((item) => item.id === id)!; Object.assign(video, input, { updatedAt: new Date().toISOString() }); return { ...video } },
+          removeVideo: async (id: string) => { const index = flowVideos.findIndex((item) => item.id === id); if (index >= 0) flowVideos.splice(index, 1) },
+          saveReview: async (input: Record<string, unknown>) => { Object.assign(flowReview, input, { savedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); return { ...flowReview } },
+          month: async () => flowVideos.length || flowReview.savedAt ? [{ date: today, videoLimit: 3, videoCount: flowVideos.length, pendingThoughtCount: flowVideos.filter((video) => !video.thought).length, reviewSaved: Boolean(flowReview.savedAt), overLimit: flowVideos.length > 3 }] : [],
+          summary: async () => ({ from: today, to: today, reviewedDays: flowReview.savedAt ? 1 : 0, videoCount: flowVideos.length, overLimitDays: flowVideos.length > 3 ? 1 : 0, pendingThoughts: flowVideos.filter((video) => !video.thought).length }),
+        },
+        settings: { get: async () => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }), update: async (input: Record<string, unknown>) => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00', ...input }) },
+        desktop: { status: async () => ({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: true }), openQuickCapture: async () => undefined, openExternal: async () => undefined, onFocusQuickAdd: () => () => undefined, onOpenFlow: () => () => undefined },
         lists: {
           list: async () => lists.map((list) => ({ ...list })),
           create: async (input: Record<string, unknown>) => {
@@ -90,7 +101,7 @@ test.beforeEach(async ({ page }) => {
           },
           reorder: async (ids: string[]) => ids.forEach((id, index) => { const list = lists.find((item) => item.id === id); if (list) list.sortOrder = index }),
         },
-        backup: { export: async () => ({}), import: async () => ({ importedTasks: 0, importedLists: 0, importedRules: 0 }) },
+        backup: { export: async () => ({}), import: async () => ({ importedTasks: 0, importedLists: 0, importedRules: 0, importedReviews: 0, importedVideos: 0 }) },
       },
     })
   })
@@ -304,4 +315,23 @@ test('creates tags from Quick Add and details, then filters without opening deta
   await page.getByRole('button', { name: '保存更改' }).click()
   await page.getByRole('button', { name: '关闭' }).click()
   await expect(taggedRow.getByRole('button', { name: '#重点' })).toBeVisible()
+})
+
+test('registers an intentional video and saves a daily flow review', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 720 })
+  await page.goto('/')
+  await page.locator('.nav-group .nav-item').filter({ hasText: '心流' }).click()
+  await expect(page.getByRole('heading', { name: '心流' })).toBeVisible()
+  await page.getByPlaceholder('这条视频讲了什么？').fill('慢下来再输入')
+  await page.getByPlaceholder('https://…').fill('https://www.douyin.com/video/123')
+  await page.getByRole('button', { name: '登记并打开视频' }).click()
+  await expect(page.getByText('待补思考', { exact: true })).toBeVisible()
+
+  await page.getByPlaceholder('我认同或不认同什么？它和我的经历有什么关系？').fill('先明确观看目的，再决定是否值得投入注意力。')
+  await page.getByRole('button', { name: '保存记录' }).click()
+  await expect(page.getByText('已思考')).toBeVisible()
+  await page.getByPlaceholder('哪件事值得肯定？').fill('完成了最重要的任务')
+  await page.getByRole('button', { name: '保存今日复盘' }).click()
+  await expect(page.locator('.saved-pill')).toHaveText('已保存')
+  expect(await page.locator('body').evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(1024)
 })

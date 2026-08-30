@@ -139,6 +139,41 @@ function migrate(database: Database.Database): void {
       database.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(6, new Date().toISOString())
     })()
   }
+  if ((applied?.version ?? 0) < 7) {
+    database.transaction(() => {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS flow_videos (
+          id TEXT PRIMARY KEY,
+          entry_date TEXT NOT NULL,
+          title TEXT NOT NULL,
+          source_url TEXT NOT NULL,
+          author TEXT NOT NULL DEFAULT '',
+          thought TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS flow_days (
+          entry_date TEXT PRIMARY KEY,
+          video_limit INTEGER NOT NULL DEFAULT 3 CHECK(video_limit BETWEEN 0 AND 10),
+          did_well TEXT NOT NULL DEFAULT '',
+          did_not_well TEXT NOT NULL DEFAULT '',
+          reflection TEXT NOT NULL DEFAULT '',
+          input_type TEXT NOT NULL DEFAULT 'none' CHECK(input_type IN ('none','video','other')),
+          input_video_id TEXT REFERENCES flow_videos(id) ON DELETE SET NULL,
+          input_text TEXT NOT NULL DEFAULT '',
+          output_text TEXT NOT NULL DEFAULT '',
+          tomorrow_expectation TEXT NOT NULL DEFAULT '',
+          saved_at TEXT,
+          reminder_notified_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_flow_videos_date ON flow_videos(entry_date, created_at);
+        CREATE INDEX IF NOT EXISTS idx_flow_days_saved ON flow_days(saved_at, entry_date);
+      `)
+      database.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(7, new Date().toISOString())
+    })()
+  }
 }
 
 export function closeDatabase(): void {

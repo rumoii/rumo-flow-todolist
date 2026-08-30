@@ -10,6 +10,7 @@ A focused, offline-first desktop todo list. Rumo-Flow is built with Vue 3, TypeS
 - Quick entry, search, drag-and-drop ordering, and grouping by list, priority, or tag
 - Quick Add Magic using tokens such as `#tag`, `!p1`, `@tomorrow`, and `~list-name`
 - Due dates and times, reminders, none/low/medium/high priority, tags, and notes
+- A Flow daily review with short-video limits, source and thought capture, guided prompts, calendar history, and seven-day trends
 - Daily, weekly, and monthly recurring tasks with automatic next-instance generation
 - Subtasks and a task-details drawer
 - Time-limited undo after completing, restoring, or deleting tasks
@@ -54,7 +55,7 @@ The Windows installer is published as a GitHub Release instead of being committe
 
 Application data is stored in Electron's user-data directory in a database named `rumo-daiban.sqlite`. Use “Settings & Data” inside the app to export a JSON backup; avoid copying a live SQLite file while the app is running. Before a restore, Rumo-Flow writes a snapshot to `backups/pre-import-*.json` so the previous state is retained.
 
-New exports use `rumo-flow-backup` v2 and include tags and saved filters. Restore accepts both v1 and v2 backups, including historical `rumo-daiban-backup` v1 files. Existing databases are upgraded through compatible migrations when the app starts.
+New exports use `rumo-flow-backup` v3 and include tags, saved filters, Flow reviews, and video reflections. Restore accepts v1, v2, and v3 backups, including historical `rumo-daiban-backup` v1 files. Existing databases are upgraded through compatible migrations when the app starts.
 
 ## Project structure
 

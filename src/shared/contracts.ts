@@ -4,6 +4,7 @@ export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly'
 export type ThemeMode = 'light' | 'dark'
 export type DensityMode = 'comfortable' | 'compact'
 export type DueFilter = 'today' | 'overdue' | 'next7' | 'none' | 'any'
+export type DailyInputType = 'none' | 'video' | 'other'
 
 export interface Tag {
   id: string
@@ -116,6 +117,74 @@ export interface AppSettings {
   theme: ThemeMode
   density: DensityMode
   globalShortcut: string
+  dailyVideoLimit: number
+  reviewReminderEnabled: boolean
+  reviewReminderTime: string
+}
+
+export interface VideoReflection {
+  id: string
+  date: string
+  title: string
+  sourceUrl: string
+  sourcePlatform: string
+  author: string
+  thought: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DailyReview {
+  date: string
+  videoLimit: number
+  didWell: string
+  didNotWell: string
+  reflection: string
+  inputType: DailyInputType
+  inputVideoId: string | null
+  inputText: string
+  outputText: string
+  tomorrowExpectation: string
+  savedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface FlowDay {
+  review: DailyReview
+  videos: VideoReflection[]
+}
+
+export interface FlowDaySummary {
+  date: string
+  videoLimit: number
+  videoCount: number
+  pendingThoughtCount: number
+  reviewSaved: boolean
+  overLimit: boolean
+}
+
+export interface FlowSummary {
+  from: string
+  to: string
+  reviewedDays: number
+  videoCount: number
+  overLimitDays: number
+  pendingThoughts: number
+}
+
+export interface CreateVideoReflectionInput { date: string; title: string; sourceUrl: string; author?: string }
+export interface UpdateVideoReflectionInput { title?: string; sourceUrl?: string; author?: string; thought?: string }
+export interface SaveDailyReviewInput {
+  date: string
+  didWell?: string
+  didNotWell?: string
+  reflection?: string
+  inputType?: DailyInputType
+  inputVideoId?: string | null
+  inputText?: string
+  outputText?: string
+  tomorrowExpectation?: string
 }
 
 export interface DesktopStatus {
@@ -125,7 +194,7 @@ export interface DesktopStatus {
 
 export interface BackupPayload {
   format: 'rumo-flow-backup' | 'rumo-daiban-backup'
-  version: 1 | 2
+  version: 1 | 2 | 3
   exportedAt: string
   taskLists: TaskList[]
   tasks: Task[]
@@ -133,10 +202,12 @@ export interface BackupPayload {
   tags?: Tag[]
   taskTags?: Array<{ taskId: string; tagId: string }>
   savedFilters?: SavedFilter[]
+  flowDays?: DailyReview[]
+  videoReflections?: VideoReflection[]
   settings: Record<string, unknown>
 }
 
-export interface ImportResult { importedTasks: number; importedLists: number; importedRules: number }
+export interface ImportResult { importedTasks: number; importedLists: number; importedRules: number; importedReviews: number; importedVideos: number }
 
 export interface TodoApi {
   tasks: {
@@ -172,10 +243,21 @@ export interface TodoApi {
     get(): Promise<AppSettings>
     update(input: Partial<AppSettings>): Promise<AppSettings>
   }
+  flow: {
+    getDay(date: string): Promise<FlowDay>
+    saveReview(input: SaveDailyReviewInput): Promise<DailyReview>
+    createVideo(input: CreateVideoReflectionInput): Promise<VideoReflection>
+    updateVideo(id: string, input: UpdateVideoReflectionInput): Promise<VideoReflection>
+    removeVideo(id: string): Promise<void>
+    month(month: string): Promise<FlowDaySummary[]>
+    summary(days?: number): Promise<FlowSummary>
+  }
   desktop: {
     status(): Promise<DesktopStatus>
     openQuickCapture(): Promise<void>
+    openExternal(url: string): Promise<void>
     onFocusQuickAdd(callback: (taskId?: string) => void): () => void
+    onOpenFlow(callback: () => void): () => void
   }
   backup: {
     export(): Promise<string | null>

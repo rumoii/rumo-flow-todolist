@@ -181,13 +181,14 @@ describe('Repository with an isolated SQLite database', () => {
     const list = repository.createList({ name: '旧清单', isPinned: true })
     repository.createTask({ title: '旧任务', listId: list.id, isPinned: true })
     const oldBackup = JSON.parse(JSON.stringify(repository.exportBackup()))
+    oldBackup.version = 1
     oldBackup.taskLists.forEach((item: Record<string, unknown>) => delete item.isPinned)
     oldBackup.tasks.forEach((item: Record<string, unknown>) => delete item.isPinned)
 
     repository.importBackup(oldBackup)
     expect(repository.listLists()[0].isPinned).toBe(false)
     expect(repository.listTasks()[0].isPinned).toBe(false)
-    expect(getDatabase().prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toEqual({ version: 6 })
+    expect(getDatabase().prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toEqual({ version: 7 })
   })
 
   it('rejects invalid persisted pin values before writing', () => {
@@ -198,7 +199,7 @@ describe('Repository with an isolated SQLite database', () => {
     expect(repository.listLists()).toHaveLength(0)
   })
 
-  it('stores tags, saved filters, reminder fields and exports backup version 2', () => {
+  it('stores tags, saved filters, reminder fields and exports backup version 3', () => {
     const repository = new Repository()
     const tag = repository.createTag({ name: '紧急', color: '#ff5d5d' })
     const task = repository.createTask({ title: '带提醒任务', dueDate: '2026-08-28', dueTime: '10:30', reminderMinutesBefore: 15, tagIds: [tag.id] })
@@ -207,7 +208,7 @@ describe('Repository with an isolated SQLite database', () => {
     expect(repository.listTasks({ search: '紧急' }).map((item) => item.id)).toEqual([task.id])
     expect(repository.listSavedFilters()[0]).toEqual(filter)
     const backup = repository.exportBackup()
-    expect(backup.version).toBe(2)
+    expect(backup.version).toBe(3)
     expect(backup.taskTags).toEqual([{ taskId: task.id, tagId: tag.id }])
   })
 
@@ -242,7 +243,7 @@ describe('Repository with an isolated SQLite database', () => {
     expect(repository.listTasks({ search: '重复撤销' })).toHaveLength(2)
   })
 
-  it('round-trips version 2 backups with parent and generated task links', () => {
+  it('round-trips version 3 backups with parent and generated task links', () => {
     const repository = new Repository()
     const recurring = repository.createTask({ title: '备份重复任务', dueDate: '2026-08-28', recurrence: { frequency: 'daily' } })
     repository.createTask({ title: '备份子任务', parentTaskId: recurring.id })
@@ -251,5 +252,47 @@ describe('Repository with an isolated SQLite database', () => {
     expect(() => repository.importBackup(backup)).not.toThrow()
     expect(repository.listTasks({ search: '备份重复任务' })).toHaveLength(2)
     expect(repository.listTasks({ search: '备份子任务' })[0].parentTaskId).toBe(recurring.id)
+  })
+
+  it('stores flow videos, review links, quota snapshots and summaries', () => {
+    const repository = new Repository()
+    const today = new Date()
+    const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    const past = new Date(today); past.setDate(today.getDate() - 1)
+    const pastDate = `${past.getFullYear()}-${String(past.getMonth() + 1).padStart(2, '0')}-${String(past.getDate()).padStart(2, '0')}`
+    const pastVideo = repository.createFlowVideo({ date: pastDate, title: '过去的视频', sourceUrl: 'https://www.bilibili.com/video/1' })
+    const first = repository.createFlowVideo({ date: todayDate, title: '值得思考的视频', sourceUrl: 'https://www.douyin.com/video/1', author: '创作者' })
+    repository.updateFlowVideo(first.id, { thought: '我认同其中一部分，并准备减少无目的输入。' })
+    repository.createFlowVideo({ date: todayDate, title: '待补思考的视频', sourceUrl: 'https://youtu.be/example' })
+    const review = repository.saveFlowReview({ date: todayDate, didWell: '完成了重要任务', inputType: 'video', inputVideoId: first.id, outputText: '写下了自己的观点' })
+
+    expect(review.savedAt).not.toBeNull()
+    expect(repository.getFlowDay(todayDate).videos.map((video) => video.sourcePlatform)).toEqual(['抖音', 'YouTube'])
+    expect(repository.listFlowMonth(todayDate.slice(0, 7)).find((item) => item.date === todayDate)).toMatchObject({ videoCount: 2, pendingThoughtCount: 1, reviewSaved: true, overLimit: false })
+    expect(repository.getFlowSummary(7, today)).toMatchObject({ reviewedDays: 1, videoCount: 3, pendingThoughts: 2 })
+
+    repository.updateSettings({ dailyVideoLimit: 1 })
+    expect(repository.getFlowDay(todayDate).review.videoLimit).toBe(1)
+    expect(repository.getFlowDay(pastDate).review.videoLimit).toBe(3)
+    expect(repository.listFlowMonth(todayDate.slice(0, 7)).find((item) => item.date === todayDate)?.overLimit).toBe(true)
+    expect(() => repository.createFlowVideo({ date: todayDate, title: '坏链接', sourceUrl: 'file:///tmp/video' })).toThrow('HTTP')
+    expect(pastVideo.date).toBe(pastDate)
+  })
+
+  it('round-trips flow data in version 3 backups and accepts old version 2 payloads', () => {
+    const repository = new Repository()
+    const date = '2026-08-30'
+    const video = repository.createFlowVideo({ date, title: '备份视频', sourceUrl: 'https://example.com/video' })
+    repository.saveFlowReview({ date, inputType: 'video', inputVideoId: video.id, reflection: '保留这条反思' })
+    const backup = repository.exportBackup()
+
+    expect(repository.importBackup(backup)).toMatchObject({ importedReviews: 1, importedVideos: 1 })
+    expect(repository.getFlowDay(date).review.reflection).toBe('保留这条反思')
+
+    const oldBackup = { ...backup, version: 2 as const }
+    delete oldBackup.flowDays
+    delete oldBackup.videoReflections
+    expect(repository.importBackup(oldBackup)).toMatchObject({ importedReviews: 0, importedVideos: 0 })
+    expect(repository.listFlowMonth('2026-08')).toEqual([])
   })
 })
