@@ -124,14 +124,14 @@ export class Repository {
     return this.mapFlowDay(getDatabase().prepare('SELECT * FROM flow_days WHERE entry_date=?').get(review.date))
   }
   createFlowVideo(input: CreateVideoReflectionInput): VideoReflection {
-    if (!validCalendarDate(input.date)) throw new Error('心流日期无效'); if (!input.title?.trim()) throw new Error('视频标题不能为空')
+    if (!validCalendarDate(input.date)) throw new Error('心流日期无效')
     this.ensureFlowDay(input.date); const id = newId(); const createdAt = timestamp(); const sourceUrl = normalizeHttpUrl(input.sourceUrl)
-    getDatabase().prepare('INSERT INTO flow_videos(id,entry_date,title,source_url,author,thought,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)').run(id, input.date, input.title.trim(), sourceUrl, input.author?.trim() ?? '', '', createdAt, createdAt)
+    getDatabase().prepare('INSERT INTO flow_videos(id,entry_date,title,source_url,author,thought,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)').run(id, input.date, input.title?.trim() ?? '', sourceUrl, input.author?.trim() ?? '', '', createdAt, createdAt)
     return this.mapFlowVideo(getDatabase().prepare('SELECT * FROM flow_videos WHERE id=?').get(id))
   }
   updateFlowVideo(id: string, input: UpdateVideoReflectionInput): VideoReflection {
     const db = getDatabase(); const current = db.prepare('SELECT * FROM flow_videos WHERE id=?').get(id) as any; if (!current) throw new Error('视频记录不存在')
-    const title = input.title === undefined ? current.title : input.title.trim(); if (!title) throw new Error('视频标题不能为空')
+    const title = input.title === undefined ? current.title : input.title.trim()
     const sourceUrl = input.sourceUrl === undefined ? current.source_url : normalizeHttpUrl(input.sourceUrl)
     db.prepare('UPDATE flow_videos SET title=?,source_url=?,author=?,thought=?,updated_at=? WHERE id=?').run(title, sourceUrl, input.author === undefined ? current.author : input.author.trim(), input.thought === undefined ? current.thought : input.thought, timestamp(), id)
     return this.mapFlowVideo(db.prepare('SELECT * FROM flow_videos WHERE id=?').get(id))
@@ -194,7 +194,7 @@ export class Repository {
       if (!Array.isArray(payload.flowDays) || !Array.isArray(payload.videoReflections)) throw new Error('心流备份数据缺失')
       const dayDates = new Set(payload.flowDays.map((x) => x.date)); const videoDates = new Map(payload.videoReflections.map((x) => [x.id, x.date])); if (dayDates.size !== payload.flowDays.length || videoDates.size !== payload.videoReflections.length) throw new Error('心流备份包含重复记录')
       payload.flowDays.forEach((x) => { if (!validCalendarDate(x.date) || !Number.isInteger(x.videoLimit) || x.videoLimit < 0 || x.videoLimit > 10 || !['none', 'video', 'other'].includes(x.inputType) || (x.inputType === 'video') !== Boolean(x.inputVideoId) || (x.inputVideoId && videoDates.get(x.inputVideoId) !== x.date)) throw new Error('心流复盘数据无效') })
-      payload.videoReflections.forEach((x) => { if (!x.id || !dayDates.has(x.date) || !x.title?.trim()) throw new Error('视频复盘数据无效'); normalizeHttpUrl(x.sourceUrl) })
+      payload.videoReflections.forEach((x) => { if (!x.id || !dayDates.has(x.date) || typeof x.title !== 'string') throw new Error('视频复盘数据无效'); normalizeHttpUrl(x.sourceUrl) })
     }
   }
 }

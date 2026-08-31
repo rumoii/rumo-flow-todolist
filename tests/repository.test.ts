@@ -295,4 +295,15 @@ describe('Repository with an isolated SQLite database', () => {
     expect(repository.importBackup(oldBackup)).toMatchObject({ importedReviews: 0, importedVideos: 0 })
     expect(repository.listFlowMonth('2026-08')).toEqual([])
   })
+
+  it('persists a video link before its optional details are filled in', () => {
+    const repository = new Repository()
+    const date = '2026-08-31'
+    const video = repository.createFlowVideo({ date, sourceUrl: 'https://example.com/watch/1' })
+
+    expect(video).toMatchObject({ title: '', author: '', thought: '', sourcePlatform: 'example.com' })
+    expect(repository.exportBackup().videoReflections?.[0]?.title).toBe('')
+    expect(() => repository.importBackup(repository.exportBackup())).not.toThrow()
+    expect(repository.updateFlowVideo(video.id, { title: '看完后补上的标题' }).title).toBe('看完后补上的标题')
+  })
 })

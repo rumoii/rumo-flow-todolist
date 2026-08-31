@@ -173,7 +173,7 @@ export interface FlowSummary {
   pendingThoughts: number
 }
 
-export interface CreateVideoReflectionInput { date: string; title: string; sourceUrl: string; author?: string }
+export interface CreateVideoReflectionInput { date: string; title?: string; sourceUrl: string; author?: string }
 export interface UpdateVideoReflectionInput { title?: string; sourceUrl?: string; author?: string; thought?: string }
 export interface SaveDailyReviewInput {
   date: string

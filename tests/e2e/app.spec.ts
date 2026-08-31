@@ -70,7 +70,7 @@ test.beforeEach(async ({ page }) => {
         filters: { list: async () => [], create: async (input: Record<string, unknown>) => ({ id: crypto.randomUUID(), sortOrder: 0, createdAt: timestamp, updatedAt: timestamp, ...input }), update: async () => ({}), remove: async () => undefined },
         flow: {
           getDay: async () => ({ review: { ...flowReview }, videos: flowVideos.map((video) => ({ ...video })) }),
-          createVideo: async (input: { date: string; title: string; sourceUrl: string; author?: string }) => { const video = { id: crypto.randomUUID(), date: input.date, title: input.title, sourceUrl: input.sourceUrl, sourcePlatform: '抖音', author: input.author ?? '', thought: '', createdAt: timestamp, updatedAt: timestamp }; flowVideos.push(video); return { ...video } },
+          createVideo: async (input: { date: string; title?: string; sourceUrl: string; author?: string }) => { const video = { id: crypto.randomUUID(), date: input.date, title: input.title ?? '', sourceUrl: input.sourceUrl, sourcePlatform: '抖音', author: input.author ?? '', thought: '', createdAt: timestamp, updatedAt: timestamp }; flowVideos.push(video); return { ...video } },
           updateVideo: async (id: string, input: Record<string, unknown>) => { const video = flowVideos.find((item) => item.id === id)!; Object.assign(video, input, { updatedAt: new Date().toISOString() }); return { ...video } },
           removeVideo: async (id: string) => { const index = flowVideos.findIndex((item) => item.id === id); if (index >= 0) flowVideos.splice(index, 1) },
           saveReview: async (input: Record<string, unknown>) => { Object.assign(flowReview, input, { savedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); return { ...flowReview } },
@@ -320,16 +320,21 @@ test('creates tags from Quick Add and details, then filters without opening deta
 test('registers an intentional video and saves a daily flow review', async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 720 })
   await page.goto('/')
-  await page.locator('.nav-group .nav-item').filter({ hasText: '心流' }).click()
+  const primaryNavigation = await page.locator('.nav-group > .nav-item').allTextContents()
+  expect(primaryNavigation.map((label) => label.replace(/\d+/g, '').trim())).toEqual(['✦ 收集箱', '☀ 今天', '▦ 本周', '◷ 即将到期', '✓ 已完成'])
+  await expect(page.locator('.nav-group + .flow-nav-section')).toBeVisible()
+  await page.getByRole('button', { name: /心流/ }).click()
   await expect(page.getByRole('heading', { name: '心流' })).toBeVisible()
-  await page.getByPlaceholder('这条视频讲了什么？').fill('慢下来再输入')
   await page.getByPlaceholder('https://…').fill('https://www.douyin.com/video/123')
-  await page.getByRole('button', { name: '登记并打开视频' }).click()
+  await page.getByRole('button', { name: '暂存并打开' }).click()
+  await expect(page.getByText('待补充标题', { exact: true })).toBeVisible()
   await expect(page.getByText('待补思考', { exact: true })).toBeVisible()
 
+  await page.getByPlaceholder('看完后，这条视频讲了什么？').fill('慢下来再输入')
   await page.getByPlaceholder('我认同或不认同什么？它和我的经历有什么关系？').fill('先明确观看目的，再决定是否值得投入注意力。')
   await page.getByRole('button', { name: '保存记录' }).click()
   await expect(page.getByText('已思考')).toBeVisible()
+  await page.getByRole('tab', { name: /每日复盘/ }).click()
   await page.getByPlaceholder('哪件事值得肯定？').fill('完成了最重要的任务')
   await page.getByRole('button', { name: '保存今日复盘' }).click()
   await expect(page.locator('.saved-pill')).toHaveText('已保存')

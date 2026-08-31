@@ -348,11 +348,11 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', handleShortcut); r
       <nav class="nav-group">
         <button :class="['nav-item', { active: activeView === 'inbox' }]" @click="activeView = 'inbox'"><span>✦</span> 收集箱 <em>{{ tasks.filter(task => task.status === 'active' && task.listId === null).length }}</em></button>
         <button :class="['nav-item', { active: activeView === 'today' }]" @click="activeView = 'today'"><span>☀</span> 今天 <em>{{ tasks.filter(isTodayTask).length }}</em></button>
-        <button :class="['nav-item', { active: activeView === 'flow' }]" @click="activeView = 'flow'"><span>◌</span> 心流</button>
-        <button :class="['nav-item', { active: activeView === 'upcoming' }]" @click="activeView = 'upcoming'"><span>◷</span> 即将到期</button>
         <button :class="['nav-item', { active: activeView === 'week' }]" @click="activeView = 'week'"><span>▦</span> 本周</button>
+        <button :class="['nav-item', { active: activeView === 'upcoming' }]" @click="activeView = 'upcoming'"><span>◷</span> 即将到期</button>
         <button :class="['nav-item', { active: activeView === 'completed' }]" @click="activeView = 'completed'"><span>✓</span> 已完成 <em>{{ completedCount }}</em></button>
       </nav>
+      <nav class="flow-nav-section" aria-label="心流"><button :class="['nav-item', { active: activeView === 'flow' }]" @click="activeView = 'flow'"><span>◌</span> 心流 <em>记录与复盘</em></button></nav>
       <div class="sidebar-section saved-filter-section">
         <div class="section-title">保存的筛选 <button class="icon-button" aria-label="新建筛选" @click.stop="filterComposerOpen = !filterComposerOpen">＋</button></div>
         <Transition name="filter-composer">

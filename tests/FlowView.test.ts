@@ -13,7 +13,7 @@ function createFlowApi(seed: VideoReflection[] = []) {
     flow: {
       getDay: vi.fn(async () => structuredClone(day)),
       createVideo: vi.fn(async (input) => {
-        const video: VideoReflection = { id: `video-${day.videos.length + 1}`, date: input.date, title: input.title, sourceUrl: input.sourceUrl, sourcePlatform: '抖音', author: input.author ?? '', thought: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+        const video: VideoReflection = { id: `video-${day.videos.length + 1}`, date: input.date, title: input.title ?? '', sourceUrl: input.sourceUrl, sourcePlatform: '抖音', author: input.author ?? '', thought: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
         day.videos.push(video); return structuredClone(video)
       }),
       updateVideo: vi.fn(async (id, input) => { const video = day.videos.find((item) => item.id === id)!; Object.assign(video, input); return structuredClone(video) }),
@@ -31,22 +31,22 @@ describe('FlowView', () => {
   beforeEach(() => { vi.stubGlobal('confirm', vi.fn(() => true)) })
   afterEach(() => { vi.unstubAllGlobals(); delete (window as { todoApi?: TodoApi }).todoApi })
 
-  it('registers a video before opening it and saves the later thought', async () => {
+  it('stashes a link before opening it and saves details after watching', async () => {
     const { api } = createFlowApi()
     Object.defineProperty(window, 'todoApi', { configurable: true, value: api })
     const wrapper = mount(FlowView, { props: { todayCompletedCount: 2, todayPendingCount: 1 } })
     await flushPromises()
 
-    const inputs = wrapper.findAll('.video-composer input')
-    await inputs[0].setValue('关于注意力的视频')
-    await inputs[1].setValue('https://www.douyin.com/video/1')
-    await wrapper.findAll('button').find((button) => button.text() === '登记并打开视频')!.trigger('click')
+    await wrapper.find('.video-composer input').setValue('https://www.douyin.com/video/1')
+    await wrapper.findAll('button').find((button) => button.text() === '暂存并打开')!.trigger('click')
     await flushPromises()
 
-    expect(api.flow.createVideo).toHaveBeenCalledWith(expect.objectContaining({ title: '关于注意力的视频' }))
+    expect(api.flow.createVideo).toHaveBeenCalledWith({ date: date(), sourceUrl: 'https://www.douyin.com/video/1' })
     expect(api.desktop.openExternal).toHaveBeenCalledWith('https://www.douyin.com/video/1')
+    expect(wrapper.text()).toContain('待补充标题')
     expect(wrapper.text()).toContain('待补思考')
 
+    await wrapper.find('.video-entry input').setValue('关于注意力的视频')
     await wrapper.find('.video-entry textarea').setValue('我会先问自己为什么要打开这条视频。')
     await wrapper.findAll('button').find((button) => button.text() === '保存记录')!.trigger('click')
     await flushPromises()
@@ -61,13 +61,12 @@ describe('FlowView', () => {
     const wrapper = mount(FlowView, { props: { todayCompletedCount: 0, todayPendingCount: 0 } })
     await flushPromises()
 
-    const inputs = wrapper.findAll('.video-composer input')
-    await inputs[0].setValue('第四个视频')
-    await inputs[1].setValue('https://example.com/4')
-    await wrapper.findAll('button').find((button) => button.text() === '登记并打开视频')!.trigger('click')
+    await wrapper.find('.video-composer input').setValue('https://example.com/4')
+    await wrapper.findAll('button').find((button) => button.text() === '暂存并打开')!.trigger('click')
     await flushPromises()
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('今天已达到 3/3'))
 
+    await wrapper.findAll('button').find((button) => button.text().includes('每日复盘'))!.trigger('click')
     await wrapper.findAll('button').find((button) => button.text() === '保存今日复盘')!.trigger('click')
     await flushPromises()
     expect(api.flow.saveReview).toHaveBeenCalledWith(expect.objectContaining({ inputType: 'none', inputVideoId: null }))
@@ -82,15 +81,31 @@ describe('FlowView', () => {
     const wrapper = mount(FlowView, { props: { todayCompletedCount: 0, todayPendingCount: 0 } })
     await flushPromises()
 
-    const inputs = wrapper.findAll('.video-composer input')
-    await inputs[0].setValue('已经保存的视频')
-    await inputs[1].setValue('https://example.com/video')
-    await wrapper.findAll('button').find((button) => button.text() === '登记并打开视频')!.trigger('click')
+    await wrapper.find('.video-composer input').setValue('https://example.com/video')
+    await wrapper.findAll('button').find((button) => button.text() === '暂存并打开')!.trigger('click')
     await flushPromises()
 
     expect(api.flow.createVideo).toHaveBeenCalledOnce()
-    expect(wrapper.text()).toContain('视频已登记，但来源链接未能打开')
-    expect(wrapper.text()).toContain('已经保存的视频')
+    expect(wrapper.text()).toContain('链接已暂存，但来源页面未能打开')
+    expect(wrapper.text()).toContain('待补充标题')
+    wrapper.unmount()
+  })
+
+  it('switches tabs with the keyboard and keeps an unfinished review draft', async () => {
+    const { api } = createFlowApi()
+    Object.defineProperty(window, 'todoApi', { configurable: true, value: api })
+    const wrapper = mount(FlowView, { props: { todayCompletedCount: 0, todayPendingCount: 0 }, attachTo: document.body })
+    await flushPromises()
+
+    const inputTab = wrapper.find('#flow-tab-input')
+    expect(inputTab.attributes('aria-selected')).toBe('true')
+    await inputTab.trigger('keydown', { key: 'ArrowRight' })
+    await flushPromises()
+    expect(wrapper.find('#flow-tab-review').attributes('aria-selected')).toBe('true')
+    await wrapper.find('[placeholder="哪件事值得肯定？"]').setValue('没有保存的复盘草稿')
+    await wrapper.find('#flow-tab-input').trigger('click')
+    await wrapper.find('#flow-tab-review').trigger('click')
+    expect((wrapper.find('[placeholder="哪件事值得肯定？"]').element as HTMLTextAreaElement).value).toBe('没有保存的复盘草稿')
     wrapper.unmount()
   })
 })
