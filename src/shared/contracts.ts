@@ -242,6 +242,7 @@ export interface TodoApi {
   settings: {
     get(): Promise<AppSettings>
     update(input: Partial<AppSettings>): Promise<AppSettings>
+    onChanged(callback: (settings: AppSettings) => void): () => void
   }
   flow: {
     getDay(date: string): Promise<FlowDay>

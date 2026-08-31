@@ -52,7 +52,7 @@ app.whenReady().then(() => {
   desktop = new DesktopController(() => mainWindow, createWindow, windowIconPath, process.env.ELECTRON_RENDERER_URL, rendererFile)
   desktop.start(repository.getSettings().globalShortcut)
   reminderScheduler = new ReminderScheduler(repository, (taskId) => desktop?.showMain(taskId), () => desktop?.showFlow())
-  registerIpcHandlers({ onTasksChanged: () => reminderScheduler?.reschedule(), onScheduleChanged: () => reminderScheduler?.reschedule(), openQuickCapture: () => desktop?.showCapture(), desktopStatus: () => ({ globalShortcut: desktop?.shortcut ?? repository.getSettings().globalShortcut, globalShortcutRegistered: desktop?.shortcutRegistered ?? false }), onSettingsChanged: () => { desktop?.registerShortcut(repository.getSettings().globalShortcut); reminderScheduler?.reschedule() } })
+  registerIpcHandlers({ onTasksChanged: () => reminderScheduler?.reschedule(), onScheduleChanged: () => reminderScheduler?.reschedule(), openQuickCapture: () => desktop?.showCapture(), desktopStatus: () => ({ globalShortcut: desktop?.shortcut ?? repository.getSettings().globalShortcut, globalShortcutRegistered: desktop?.shortcutRegistered ?? false }), onSettingsChanged: (settings) => { desktop?.registerShortcut(settings.globalShortcut); desktop?.notifySettingsChanged(settings); reminderScheduler?.reschedule() } })
   reminderScheduler.start()
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

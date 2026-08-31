@@ -10,7 +10,7 @@ function createApi(overrides: Partial<TodoApi> = {}): TodoApi {
     lists: { list: vi.fn(async () => []), create: vi.fn(), update: vi.fn(), remove: vi.fn(), reorder: vi.fn() },
     tags: { list: vi.fn(async () => []), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
     filters: { list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
-    settings: { get: vi.fn(), update: vi.fn() },
+    settings: { get: vi.fn(async () => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })), update: vi.fn(), onChanged: vi.fn(() => () => undefined) },
     desktop: { status: vi.fn(), openQuickCapture: vi.fn(), onFocusQuickAdd: vi.fn() },
     backup: { export: vi.fn(), import: vi.fn() },
     ...overrides,
@@ -21,6 +21,28 @@ describe('QuickCapture', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+    delete window.todoApi
+    delete document.documentElement.dataset.theme
+    delete document.documentElement.dataset.density
+  })
+
+  it('loads the saved theme, reacts to updates and releases its listener', async () => {
+    let changeTheme: ((settings: Awaited<ReturnType<TodoApi['settings']['get']>>) => void) | undefined
+    const removeListener = vi.fn()
+    const api = createApi()
+    api.settings.get = vi.fn(async () => ({ theme: 'dark', density: 'compact', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }))
+    api.settings.onChanged = vi.fn((callback) => { changeTheme = callback; return removeListener })
+    window.todoApi = api
+
+    const wrapper = mount(QuickCapture)
+    await flushPromises()
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(document.documentElement.dataset.density).toBe('compact')
+
+    changeTheme?.({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })
+    expect(document.documentElement.dataset.theme).toBe('light')
+    wrapper.unmount()
+    expect(removeListener).toHaveBeenCalledOnce()
   })
 
   it('renders the branded capture card without page overflow', async () => {

@@ -1,6 +1,6 @@
 import { dialog, ipcMain, shell } from 'electron'
 import fs from 'node:fs/promises'
-import type { BackupPayload, CreateSavedFilterInput, CreateTagInput, CreateTaskInput, CreateTaskListInput, CreateVideoReflectionInput, SaveDailyReviewInput, TaskQuery, UpdateSavedFilterInput, UpdateTagInput, UpdateTaskInput, UpdateTaskListInput, UpdateVideoReflectionInput } from '../src/shared/contracts'
+import type { AppSettings, BackupPayload, CreateSavedFilterInput, CreateTagInput, CreateTaskInput, CreateTaskListInput, CreateVideoReflectionInput, SaveDailyReviewInput, TaskQuery, UpdateSavedFilterInput, UpdateTagInput, UpdateTaskInput, UpdateTaskListInput, UpdateVideoReflectionInput } from '../src/shared/contracts'
 import { Repository } from './database/repository'
 
 const repository = new Repository()
@@ -31,7 +31,7 @@ function parseBackup(input: BackupPayload | string): BackupPayload {
   return object<BackupPayload>(input, '备份数据')
 }
 
-export function registerIpcHandlers(options: { onTasksChanged?: () => void; onScheduleChanged?: () => void; openQuickCapture?: () => void; desktopStatus?: () => { globalShortcut: string; globalShortcutRegistered: boolean }; onSettingsChanged?: () => void } = {}): void {
+export function registerIpcHandlers(options: { onTasksChanged?: () => void; onScheduleChanged?: () => void; openQuickCapture?: () => void; desktopStatus?: () => { globalShortcut: string; globalShortcutRegistered: boolean }; onSettingsChanged?: (settings: AppSettings) => void } = {}): void {
   const changed = <T>(value: T): T => { options.onTasksChanged?.(); return value }
   ipcMain.handle('tasks:list', (_event, query) => repository.listTasks((query ?? {}) as TaskQuery))
   ipcMain.handle('tasks:create', (_event, input) => changed(repository.createTask(object<CreateTaskInput>(input, '任务'))))
@@ -62,7 +62,7 @@ export function registerIpcHandlers(options: { onTasksChanged?: () => void; onSc
   ipcMain.handle('flow:month', (_event, month) => repository.listFlowMonth(text(month, '月份')))
   ipcMain.handle('flow:summary', (_event, days) => repository.getFlowSummary(days === undefined ? 7 : Number(days)))
   ipcMain.handle('settings:get', () => repository.getSettings())
-  ipcMain.handle('settings:update', (_event, input) => { const result = repository.updateSettings(object(input, '设置')); options.onSettingsChanged?.(); return result })
+  ipcMain.handle('settings:update', (_event, input) => { const result = repository.updateSettings(object(input, '设置')); options.onSettingsChanged?.(result); return result })
   ipcMain.handle('desktop:status', () => options.desktopStatus?.() ?? { globalShortcut: repository.getSettings().globalShortcut, globalShortcutRegistered: false })
   ipcMain.handle('desktop:open-quick-capture', () => options.openQuickCapture?.())
   ipcMain.handle('desktop:open-external', async (_event, input) => { const value = text(input, '链接'); const url = new URL(value); if (!['http:', 'https:'].includes(url.protocol)) throw new Error('仅支持 HTTP 或 HTTPS 链接'); await shell.openExternal(url.toString()) })
@@ -82,6 +82,7 @@ export function registerIpcHandlers(options: { onTasksChanged?: () => void; onSc
     } else payload = parseBackup(input)
     const result = repository.importBackup(payload)
     options.onTasksChanged?.()
+    options.onSettingsChanged?.(repository.getSettings())
     return result
   })
 }

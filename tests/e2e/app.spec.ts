@@ -10,6 +10,7 @@ test.beforeEach(async ({ page }) => {
     const tasks = [{ id: 'seed-task', title: '验收初始任务', listId: 'list-work', dueDate: today, dueTime: null, reminderMinutesBefore: null, priority: 'high', notes: '浏览器验收', status: 'active', sortOrder: 0, isPinned: false, parentTaskId: null, recurrenceRuleId: null, deletedAt: null, tags: [], createdAt: timestamp, updatedAt: timestamp, completedAt: null }]
     const flowReview = { date: today, videoLimit: 3, didWell: '', didNotWell: '', reflection: '', inputType: 'none', inputVideoId: null, inputText: '', outputText: '', tomorrowExpectation: '', savedAt: null as string | null, createdAt: timestamp, updatedAt: timestamp }
     const flowVideos: Array<{ id: string; date: string; title: string; sourceUrl: string; sourcePlatform: string; author: string; thought: string; createdAt: string; updatedAt: string }> = []
+    const appSettings = { theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
     const byId = (id: string) => tasks.find((task) => task.id === id)
 
     Object.defineProperty(window, 'todoApi', {
@@ -77,7 +78,7 @@ test.beforeEach(async ({ page }) => {
           month: async () => flowVideos.length || flowReview.savedAt ? [{ date: today, videoLimit: 3, videoCount: flowVideos.length, pendingThoughtCount: flowVideos.filter((video) => !video.thought).length, reviewSaved: Boolean(flowReview.savedAt), overLimit: flowVideos.length > 3 }] : [],
           summary: async () => ({ from: today, to: today, reviewedDays: flowReview.savedAt ? 1 : 0, videoCount: flowVideos.length, overLimitDays: flowVideos.length > 3 ? 1 : 0, pendingThoughts: flowVideos.filter((video) => !video.thought).length }),
         },
-        settings: { get: async () => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }), update: async (input: Record<string, unknown>) => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00', ...input }) },
+        settings: { get: async () => ({ ...appSettings }), update: async (input: Record<string, unknown>) => { Object.assign(appSettings, input); return { ...appSettings } }, onChanged: () => () => undefined },
         desktop: { status: async () => ({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: true }), openQuickCapture: async () => undefined, openExternal: async () => undefined, onFocusQuickAdd: () => () => undefined, onOpenFlow: () => () => undefined },
         lists: {
           list: async () => lists.map((list) => ({ ...list })),
@@ -146,6 +147,52 @@ test('keeps the core layout usable at a narrow desktop window', async ({ page })
   await expect(page.getByPlaceholder('搜索任务')).toBeVisible()
   const bodyWidth = await page.locator('body').evaluate((element) => element.scrollWidth)
   expect(bodyWidth).toBeLessThanOrEqual(1024)
+})
+
+test('uses the available main area at a wide desktop window', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await page.goto('/')
+  const dimensions = await page.evaluate(() => {
+    const main = document.querySelector('.main-content')!.getBoundingClientRect()
+    const content = document.querySelector('.content-inner')!.getBoundingClientRect()
+    const quickAdd = document.querySelector('.quick-add')!.getBoundingClientRect()
+    return { mainWidth: main.width, contentWidth: content.width, quickAddWidth: quickAdd.width }
+  })
+  expect(dimensions.contentWidth / dimensions.mainWidth).toBeGreaterThan(0.98)
+  expect(dimensions.quickAddWidth / dimensions.mainWidth).toBeGreaterThan(0.9)
+})
+
+test('switches the complete interface between light and dark themes', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()) })
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.goto('/')
+
+  const light = await page.evaluate(() => ({ body: getComputedStyle(document.body).backgroundColor, sidebar: getComputedStyle(document.querySelector('.sidebar')!).backgroundColor }))
+  await page.getByRole('button', { name: '设置' }).click()
+  await page.getByRole('combobox', { name: '界面主题' }).click()
+  await page.getByRole('option', { name: '深色' }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+
+  const dark = await page.evaluate(() => ({
+    body: getComputedStyle(document.body).backgroundColor,
+    sidebar: getComputedStyle(document.querySelector('.sidebar')!).backgroundColor,
+    dialog: getComputedStyle(document.querySelector('.settings-dialog')!).backgroundColor,
+    dialogText: getComputedStyle(document.querySelector('.settings-dialog')!).color,
+  }))
+  expect(dark.body).not.toBe(light.body)
+  expect(dark.sidebar).not.toBe(light.sidebar)
+  expect(dark.dialog).toBe('rgb(33, 31, 40)')
+  expect(dark.dialogText).toBe('rgb(245, 242, 251)')
+
+  await page.getByRole('button', { name: '关闭设置' }).click()
+  await page.getByRole('button', { name: /心流/ }).click()
+  await expect(page.locator('.flow-card').first()).toHaveCSS('background-color', 'rgb(33, 31, 40)')
+  await page.getByRole('button', { name: '设置' }).click()
+  await page.getByRole('combobox', { name: '界面主题' }).click()
+  await page.getByRole('option', { name: '浅色' }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  expect(errors).toEqual([])
 })
 
 test('keeps weekly task titles horizontal and removes the unused account placeholder', async ({ page }) => {
@@ -276,6 +323,12 @@ test('renders the branded quick capture panel without overflow', async ({ page }
   await page.goto('/?capture=1')
   await expect(page.locator('.capture-card')).toBeVisible()
   await expect(page.getByText('快速捕获')).toBeVisible()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  const lightBackground = await page.locator('.capture-shell').evaluate((element) => getComputedStyle(element).backgroundImage)
+  expect(lightBackground).toContain('rgb(247, 245, 255)')
+  await page.locator('html').evaluate((element) => { element.dataset.theme = 'dark' })
+  const darkBackground = await page.locator('.capture-shell').evaluate((element) => getComputedStyle(element).backgroundImage)
+  expect(darkBackground).not.toBe(lightBackground)
   const dimensions = await page.evaluate(() => ({ bodyWidth: document.body.scrollWidth, viewportWidth: window.innerWidth, bodyHeight: document.body.scrollHeight, viewportHeight: window.innerHeight }))
   expect(dimensions.bodyWidth).toBeLessThanOrEqual(dimensions.viewportWidth)
   expect(dimensions.bodyHeight).toBeLessThanOrEqual(dimensions.viewportHeight)

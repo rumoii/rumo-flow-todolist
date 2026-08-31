@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App.vue'
 import type { Tag, Task, TaskList, TodoApi } from '../src/shared/contracts'
 
@@ -103,12 +103,66 @@ function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = []): TodoApi {
       export: vi.fn(),
       import: vi.fn(),
     },
+    settings: {
+      get: vi.fn(async () => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })),
+      update: vi.fn(async (input) => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00', ...input })),
+      onChanged: vi.fn(() => () => undefined),
+    },
+    desktop: {
+      status: vi.fn(async () => ({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: true })),
+      openQuickCapture: vi.fn(),
+      openExternal: vi.fn(),
+      onFocusQuickAdd: vi.fn(() => () => undefined),
+      onOpenFlow: vi.fn(() => () => undefined),
+    },
   } as unknown as TodoApi
 }
 
 describe('App critical interactions', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    delete window.todoApi
+    delete document.documentElement.dataset.theme
+    delete document.documentElement.dataset.density
+  })
+
+  it('applies the loaded theme and saves an immediately visible theme change', async () => {
+    const api = createApi([])
+    api.settings.get = vi.fn(async () => ({ theme: 'dark', density: 'compact', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }))
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(document.documentElement.dataset.density).toBe('compact')
+
+    await wrapper.findAll('.nav-item').find((button) => button.text().includes('设置'))!.trigger('click')
+    await wrapper.get('[aria-label="界面主题"]').trigger('click')
+    await wrapper.findAll('[role="option"]').find((option) => option.text().includes('浅色'))!.trigger('click')
+    expect(document.documentElement.dataset.theme).toBe('light')
+    await flushPromises()
+    expect(api.settings.update).toHaveBeenCalledWith(expect.objectContaining({ theme: 'light', density: 'compact' }))
+  })
+
+  it('restores the last saved theme when persistence fails', async () => {
+    const api = createApi([])
+    let rejectUpdate: ((reason?: unknown) => void) | undefined
+    api.settings.update = vi.fn(() => new Promise((_resolve, reject) => { rejectUpdate = reject }))
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+
+    await wrapper.findAll('.nav-item').find((button) => button.text().includes('设置'))!.trigger('click')
+    await wrapper.get('[aria-label="界面主题"]').trigger('click')
+    await wrapper.findAll('[role="option"]').find((option) => option.text().includes('深色'))!.trigger('click')
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    rejectUpdate?.(new Error('write failed'))
+    await flushPromises()
+    expect(document.documentElement.dataset.theme).toBe('light')
+    expect(wrapper.text()).toContain('偏好保存失败')
   })
 
   it('adds a task from the quick input on Enter', async () => {

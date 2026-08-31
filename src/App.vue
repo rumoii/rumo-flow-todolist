@@ -16,6 +16,7 @@ const lists = ref<TaskList[]>([])
 const tags = ref<Tag[]>([])
 const savedFilters = ref<SavedFilter[]>([])
 const settings = ref<AppSettings>({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })
+let savedSettings: AppSettings = { ...settings.value }
 const desktopStatus = ref<DesktopStatus>({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: false })
 const activeView = ref<View>('today')
 const selectedTaskId = ref<string | null>(null)
@@ -79,7 +80,7 @@ async function loadData() {
     if (hasApi()) {
       const api = window.todoApi
       const loaded = await Promise.all([api.lists.list(), api.tasks.list({}), api.tags?.list?.() ?? Promise.resolve([]), api.filters?.list?.() ?? Promise.resolve([]), api.settings?.get?.() ?? Promise.resolve(settings.value), api.desktop?.status?.() ?? Promise.resolve(desktopStatus.value)])
-      lists.value = loaded[0].map(list => ({ ...list, isPinned: list.isPinned ?? false })); tasks.value = loaded[1].map(task => ({ ...task, isPinned: task.isPinned ?? false, dueTime: task.dueTime ?? null, reminderMinutesBefore: task.reminderMinutesBefore ?? null, deletedAt: task.deletedAt ?? null, tags: task.tags ?? [] })); tags.value = loaded[2]; managedTagDrafts.value = Object.fromEntries(tags.value.map(tag => [tag.id, { name: tag.name, color: tag.color || '#856AF9' }])); savedFilters.value = loaded[3]; settings.value = { ...settings.value, ...loaded[4] }; desktopStatus.value = loaded[5]; applySettings()
+      lists.value = loaded[0].map(list => ({ ...list, isPinned: list.isPinned ?? false })); tasks.value = loaded[1].map(task => ({ ...task, isPinned: task.isPinned ?? false, dueTime: task.dueTime ?? null, reminderMinutesBefore: task.reminderMinutesBefore ?? null, deletedAt: task.deletedAt ?? null, tags: task.tags ?? [] })); tags.value = loaded[2]; managedTagDrafts.value = Object.fromEntries(tags.value.map(tag => [tag.id, { name: tag.name, color: tag.color || '#856AF9' }])); savedFilters.value = loaded[3]; settings.value = { ...settings.value, ...loaded[4] }; savedSettings = { ...settings.value }; desktopStatus.value = loaded[5]; applySettings()
     } else {
       lists.value = fallbackLists
       tasks.value = fallbackTasks
@@ -323,8 +324,26 @@ function toggleTaskMenu(taskId: string) { openListMenuId.value = null; openTaskM
 function requestListDelete(list: TaskList) { closeMenus(); listDeletePolicy.value = 'keep'; pendingListDelete.value = list }
 async function exportBackup() { if (!hasApi()) { notify('请在桌面应用中导出备份'); return } try { const filePath = await window.todoApi.backup.export(); if (filePath) notify('备份已导出') } catch { notify('备份导出失败') } }
 async function importBackup() { if (!hasApi()) { notify('请在桌面应用中恢复备份'); return } try { const result = await window.todoApi.backup.import(); if (result) { await loadData(); settingsOpen.value = false; notify(`已恢复 ${result.importedTasks} 个任务`) } } catch { notify('备份恢复失败，现有数据未改变') } }
-function applySettings() { document.documentElement.dataset.theme = settings.value.theme; document.documentElement.dataset.density = settings.value.density }
-async function saveSettings() { settings.value.dailyVideoLimit = Math.min(10, Math.max(0, Math.round(Number(settings.value.dailyVideoLimit) || 0))); try { if (hasApi()) { settings.value = await window.todoApi.settings.update(settings.value); desktopStatus.value = await window.todoApi.desktop.status() } applySettings(); notify('偏好已保存') } catch { notify('偏好保存失败，请检查设置值') } }
+function applySettings() {
+  document.documentElement.dataset.theme = settings.value.theme
+  document.documentElement.dataset.density = settings.value.density
+}
+async function saveSettings() {
+  settings.value.dailyVideoLimit = Math.min(10, Math.max(0, Math.round(Number(settings.value.dailyVideoLimit) || 0)))
+  applySettings()
+  try {
+    if (hasApi()) settings.value = await window.todoApi.settings.update(settings.value)
+    savedSettings = { ...settings.value }
+    applySettings()
+  } catch {
+    settings.value = { ...savedSettings }
+    applySettings()
+    notify('偏好保存失败，请检查设置值')
+    return
+  }
+  if (hasApi()) try { desktopStatus.value = await window.todoApi.desktop.status() } catch {}
+  notify('偏好已保存')
+}
 async function createFilter() { const name = newFilterName.value.trim(); if (!name || !hasApi()) return; const filter = await window.todoApi.filters.create({ name, criteria: { status: newFilterStatus.value, listId: newFilterListId.value === 'any' ? undefined : newFilterListId.value === 'inbox' ? null : newFilterListId.value, priorities: newFilterPriority.value === 'any' ? undefined : [newFilterPriority.value], tagIds: newFilterTagId.value === 'any' ? undefined : [newFilterTagId.value], due: newFilterDue.value, search: search.value.trim() || undefined }, sortOrder: savedFilters.value.length }); savedFilters.value.push(filter); newFilterName.value = ''; filterComposerOpen.value = false; activeView.value = `filter:${filter.id}`; notify('筛选已保存') }
 async function removeFilter(filter: SavedFilter) { if (hasApi()) await window.todoApi.filters.remove(filter.id); savedFilters.value = savedFilters.value.filter(item => item.id !== filter.id); if (activeView.value === `filter:${filter.id}`) activeView.value = 'today'; notify('筛选已删除') }
 async function runToastAction() { const action = toastAction.value; if (!action) return; toastAction.value = null; await action.run() }
@@ -336,7 +355,7 @@ function handleShortcut(event: KeyboardEvent) {
 
 let removeDesktopListener: (() => void) | undefined
 let removeFlowListener: (() => void) | undefined
-onMounted(() => { loadData(); window.addEventListener('keydown', handleShortcut); if (hasApi() && window.todoApi.desktop) { removeDesktopListener = window.todoApi.desktop.onFocusQuickAdd((taskId) => { focusQuickAdd(); loadData().then(() => { if (taskId) { selectedTaskId.value = taskId; const task = tasks.value.find(item => item.id === taskId); if (task) selectTask(task) } }) }); removeFlowListener = window.todoApi.desktop.onOpenFlow(() => { activeView.value = 'flow'; detailOpen.value = false; settingsOpen.value = false }) } })
+onMounted(() => { applySettings(); loadData(); window.addEventListener('keydown', handleShortcut); if (hasApi() && window.todoApi.desktop) { removeDesktopListener = window.todoApi.desktop.onFocusQuickAdd((taskId) => { focusQuickAdd(); loadData().then(() => { if (taskId) { selectedTaskId.value = taskId; const task = tasks.value.find(item => item.id === taskId); if (task) selectTask(task) } }) }); removeFlowListener = window.todoApi.desktop.onOpenFlow(() => { activeView.value = 'flow'; detailOpen.value = false; settingsOpen.value = false }) } })
 onBeforeUnmount(() => { window.removeEventListener('keydown', handleShortcut); removeDesktopListener?.(); removeFlowListener?.() })
 </script>
 

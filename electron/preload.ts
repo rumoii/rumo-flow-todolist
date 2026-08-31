@@ -35,7 +35,8 @@ const api: TodoApi = {
   },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
-    update: (input) => ipcRenderer.invoke('settings:update', input)
+    update: (input) => ipcRenderer.invoke('settings:update', input),
+    onChanged: (callback) => { const listener = (_event: Electron.IpcRendererEvent, settings: Parameters<typeof callback>[0]) => callback(settings); ipcRenderer.on('settings:changed', listener); return () => ipcRenderer.removeListener('settings:changed', listener) }
   },
   desktop: {
     status: () => ipcRenderer.invoke('desktop:status'),
