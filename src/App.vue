@@ -412,7 +412,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', handleShortcut); r
       </div>
       <div class="sidebar-footer"><div class="mini-progress"><div><span>今日进度</span><strong>{{ pendingCount ? Math.round(completedCount / (completedCount + pendingCount) * 100) : 100 }}%</strong></div><div class="progress-track"><span :style="{ width: `${pendingCount ? completedCount / (completedCount + pendingCount) * 100 : 100}%` }"></span></div></div><button class="nav-item muted" @click="settingsOpen = true"><span>⚙</span> 设置</button></div>
     </aside>
-    <main class="main-content">
+    <main :class="['main-content', { 'flow-view-active': activeView === 'flow' }]">
       <header class="page-header"><Transition name="title" mode="out-in"><div :key="activeView"><p class="eyebrow">{{ viewHint }}</p><h1>{{ viewTitle }}</h1></div></Transition><div v-if="activeView !== 'flow'" class="header-actions"><label class="group-select"><span>分组</span><SelectField v-model="groupBy" aria-label="任务分组" :options="[{ value: 'none', label: '不分组' }, { value: 'list', label: '按清单' }, { value: 'priority', label: '按优先级' }, { value: 'tag', label: '按标签' }]" /></label><label class="search-box"><span>⌕</span><input v-model="search" placeholder="搜索任务" /></label></div></header>
       <section :class="['content-inner', { 'flow-content-inner': activeView === 'flow' }]">
         <FlowView v-if="activeView === 'flow'" :today-completed-count="completedTodayCount" :today-pending-count="tasks.filter(isTodayTask).length" />

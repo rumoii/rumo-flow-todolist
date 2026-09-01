@@ -393,3 +393,23 @@ test('registers an intentional video and saves a daily flow review', async ({ pa
   await expect(page.locator('.saved-pill')).toHaveText('已保存')
   expect(await page.locator('body').evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(1024)
 })
+
+test('keeps the flow layout stable while switching tabs with different heights', async ({ page }) => {
+  await page.setViewportSize({ width: 1232, height: 772 })
+  await page.goto('/')
+  await page.getByRole('button', { name: /心流/ }).click()
+
+  const dimensions = () => page.evaluate(() => {
+    const main = document.querySelector('.main-content')!
+    const layout = document.querySelector('.flow-layout')!.getBoundingClientRect()
+    return { mainWidth: main.clientWidth, layoutX: layout.x, layoutWidth: layout.width }
+  })
+  const input = await dimensions()
+
+  await page.getByRole('tab', { name: /每日复盘/ }).click()
+  await expect(page.getByRole('tabpanel', { name: /每日复盘/ })).toBeVisible()
+  const review = await dimensions()
+
+  expect(review).toEqual(input)
+  await expect(page.locator('.main-content')).toHaveCSS('scrollbar-gutter', 'stable')
+})

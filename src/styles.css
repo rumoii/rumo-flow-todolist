@@ -73,7 +73,7 @@
 }
 html,body,#app{min-height:100%;background:var(--app-bg);color:var(--text)}
 .content-inner,.flow-content-inner{width:100%;max-width:none}
-.main-content{background:var(--app-bg);color:var(--text)}
+.main-content{background:var(--app-bg);color:var(--text)}.main-content.flow-view-active{scrollbar-gutter:stable}
 .sidebar,.quick-add,.task-row,.day-column,.detail-drawer,.confirm-dialog,.settings-dialog,.search-box,.list-composer,.popup-menu,.select-field__trigger,.select-field__menu,.detail-card,.drawer-footer{background:var(--surface);border-color:var(--border);color:var(--text)}
 .drawer-body,.task-zone-heading,.settings-dialog footer,.filter-composer-form{background:var(--surface-soft)}
 .page-header h1,.brand,.task-title-line,.task-card,.confirm-dialog h2,.settings-dialog h2,.settings-section strong,.detail-card__header h3,.history-summary strong{color:var(--text)}
