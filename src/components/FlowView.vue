@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import SelectField from './SelectField.vue'
 import type { DailyReview, FlowDay, FlowDaySummary, FlowSummary, SaveDailyReviewInput, VideoReflection } from '../shared/contracts'
 
@@ -9,6 +9,7 @@ type FlowTab = 'input' | 'review'
 type ReviewDraft = Omit<SaveDailyReviewInput, 'date' | 'inputType' | 'inputVideoId'>
 type VideoDraft = Pick<VideoReflection, 'title' | 'sourceUrl' | 'author' | 'thought'>
 type DayDraft = { review: ReviewDraft; inputChoice: string; videos: Record<string, VideoDraft> }
+type Confirmation = { title: string; message: string; confirmLabel: string; resolve: (confirmed: boolean) => void }
 
 const isoDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 const emptyReview = (date: string, videoLimit = 3): DailyReview => ({ date, videoLimit, didWell: '', didNotWell: '', reflection: '', inputType: 'none', inputVideoId: null, inputText: '', outputText: '', tomorrowExpectation: '', savedAt: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
@@ -29,6 +30,7 @@ const videoDrafts = ref<Record<string, VideoDraft>>({})
 const draftCache = ref<Record<string, DayDraft>>({})
 const loading = ref(true)
 const notice = ref('')
+const confirmation = ref<Confirmation | null>(null)
 let midnightTimer: number | undefined
 
 const selectedSummary = computed(() => monthDays.value.find((item) => item.date === selectedDate.value))
@@ -47,6 +49,21 @@ const calendarCells = computed(() => {
 })
 
 function setNotice(message: string) { notice.value = message; window.setTimeout(() => { if (notice.value === message) notice.value = '' }, 2800) }
+function askConfirmation(title: string, message: string, confirmLabel: string) {
+  return new Promise<boolean>((resolve) => {
+    confirmation.value = { title, message, confirmLabel, resolve }
+    void nextTick(() => document.querySelector<HTMLElement>('.flow-confirm-dialog .cancel-button')?.focus())
+  })
+}
+function resolveConfirmation(confirmed: boolean) { const request = confirmation.value; confirmation.value = null; request?.resolve(confirmed) }
+function trapConfirmationFocus(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); resolveConfirmation(false); return }
+  if (event.key !== 'Tab') return
+  const buttons = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('button:not([disabled])')]
+  if (!buttons.length) return
+  if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons[buttons.length - 1].focus() }
+  else if (!event.shiftKey && document.activeElement === buttons[buttons.length - 1]) { event.preventDefault(); buttons[0].focus() }
+}
 function stashDrafts() {
   if (loading.value) return
   draftCache.value[selectedDate.value] = {
@@ -91,7 +108,7 @@ async function addVideo() {
   const warnings: string[] = []
   if (pendingThoughts.value) warnings.push(`还有 ${pendingThoughts.value} 条视频待补思考`)
   if (day.value.videos.length >= day.value.review.videoLimit) warnings.push(`今天已达到 ${day.value.videos.length}/${day.value.review.videoLimit} 的额度`)
-  if (warnings.length && !window.confirm(`${warnings.join('，')}。仍要打开下一条吗？`)) return
+  if (warnings.length && !await askConfirmation('继续打开下一条？', `${warnings.join('，')}。先确认是否仍要继续。`, '继续打开')) return
   try {
     stashDrafts()
     const created = hasApi() ? await window.todoApi.flow.createVideo({ date: selectedDate.value, sourceUrl: videoUrl.value }) : null
@@ -115,7 +132,7 @@ async function saveVideo(video: VideoReflection) {
   } catch (error) { setNotice(error instanceof Error ? error.message : '视频记录保存失败') }
 }
 async function removeVideo(video: VideoReflection) {
-  if (!window.confirm(`删除“${video.title || '待补充标题'}”的记录吗？`)) return
+  if (!await askConfirmation('删除这条视频记录？', `“${video.title || '待补充标题'}”及已填写的思考将被删除。`, '确认删除')) return
   try {
     if (hasApi()) await window.todoApi.flow.removeVideo(video.id)
     delete videoDrafts.value[video.id]
@@ -145,7 +162,7 @@ async function checkDateRollover() {
 }
 
 onMounted(() => { void refresh(); midnightTimer = window.setInterval(() => { void checkDateRollover() }, 60000); document.addEventListener('visibilitychange', checkDateRollover) })
-onBeforeUnmount(() => { if (midnightTimer) window.clearInterval(midnightTimer); document.removeEventListener('visibilitychange', checkDateRollover) })
+onBeforeUnmount(() => { if (midnightTimer) window.clearInterval(midnightTimer); document.removeEventListener('visibilitychange', checkDateRollover); resolveConfirmation(false) })
 </script>
 
 <template>
@@ -221,6 +238,16 @@ onBeforeUnmount(() => { if (midnightTimer) window.clearInterval(midnightTimer); 
         <section class="flow-card history-summary"><small>所选日期</small><strong>{{ selectedDateLabel }}</strong><p>{{ selectedSummary?.reviewSaved ? '复盘已保存' : '尚未保存复盘' }} · {{ selectedSummary?.videoCount ?? day.videos.length }} 条视频</p><button v-if="!isToday" class="text-button" @click="selectDay(todayIso)">回到今天</button></section>
       </aside>
     </div>
+    <Transition name="dialog">
+      <div v-if="confirmation" class="dialog-backdrop flow-confirm-backdrop" @click.self="resolveConfirmation(false)" @keydown="trapConfirmationFocus">
+        <section class="confirm-dialog flow-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="flow-confirm-title" tabindex="-1">
+          <div class="dialog-icon">!</div>
+          <h2 id="flow-confirm-title">{{ confirmation.title }}</h2>
+          <p>{{ confirmation.message }}</p>
+          <div class="dialog-actions"><button class="cancel-button" @click="resolveConfirmation(false)">取消</button><button class="delete-button" @click="resolveConfirmation(true)">{{ confirmation.confirmLabel }}</button></div>
+        </section>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -229,4 +256,5 @@ onBeforeUnmount(() => { if (midnightTimer) window.clearInterval(midnightTimer); 
 @media(max-width:1080px){.flow-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.flow-layout{grid-template-columns:minmax(0,1fr) 230px}.video-edit-grid{grid-template-columns:1fr 1fr}}
 @media(prefers-reduced-motion:reduce){.flow-tab-enter-active,.flow-tab-leave-active{transition:none}}
 :global(:root[data-theme="dark"]) .flow-stat,:global(:root[data-theme="dark"]) .flow-card,:global(:root[data-theme="dark"]) .flow-tabs,:global(:root[data-theme="dark"]) input,:global(:root[data-theme="dark"]) textarea{background:#211f28;border-color:#3b3745}:global(:root[data-theme="dark"]) .video-composer,:global(:root[data-theme="dark"]) .history-hint,:global(:root[data-theme="dark"]) .flow-empty{background:#1d1b22}:global(:root[data-theme="dark"]) .flow-tabs button.active{background:#302a45;color:#c7bcff}:global(:root[data-theme="dark"]) .calendar-day:not(:disabled):hover{background:#302a45}:global(:root[data-theme="dark"]) .saved-pill{background:#302e36}:global(:root[data-theme="dark"]) .quota-pill{background:#302a45;color:#c7bcff}
+.flow-confirm-backdrop{z-index:60}.flow-confirm-dialog{width:min(380px,calc(100vw - 36px))}
 </style>

@@ -47,6 +47,7 @@ test.beforeEach(async ({ page }) => {
           },
           restoreRemoved: async () => undefined,
           reorder: async (ids: string[]) => ids.forEach((id, index) => { const task = byId(id); if (task) task.sortOrder = index }),
+          organize: async (id: string, input: { isPinned: boolean; priority: 'none' | 'low' | 'medium' | 'high'; orderedIds: string[] }) => { const task = byId(id); if (!task) throw new Error('missing task'); Object.assign(task, { isPinned: input.isPinned, priority: input.priority }); input.orderedIds.forEach((taskId, index) => { const item = byId(taskId); if (item) item.sortOrder = index }); return { ...task } },
         },
         tags: {
           list: async () => tags.map((tag) => ({ ...tag })),
@@ -101,6 +102,7 @@ test.beforeEach(async ({ page }) => {
             if (index >= 0) lists.splice(index, 1)
           },
           reorder: async (ids: string[]) => ids.forEach((id, index) => { const list = lists.find((item) => item.id === id); if (list) list.sortOrder = index }),
+          organize: async (id: string, input: { isPinned: boolean; orderedIds: string[] }) => { const list = lists.find((item) => item.id === id); if (!list) throw new Error('missing list'); list.isPinned = input.isPinned; input.orderedIds.forEach((listId, index) => { const item = lists.find((candidate) => candidate.id === listId); if (item) item.sortOrder = index }); return { ...list } },
         },
         backup: { export: async () => ({}), import: async () => ({ importedTasks: 0, importedLists: 0, importedRules: 0, importedReviews: 0, importedVideos: 0 }) },
       },
@@ -317,6 +319,38 @@ test('shows a readable saved-filter form and restrained select motion', async ({
   expect(Math.abs(after!.x - before!.x)).toBeLessThanOrEqual(0.5)
   expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(0.5)
   await expect(page.getByRole('listbox', { name: '筛选状态' })).toBeVisible()
+})
+
+test('keeps saved-filter names horizontal and applies completed status before the empty state', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 })
+  await page.goto('/')
+  await page.locator('.task-row').filter({ hasText: '验收初始任务' }).locator('.check').click()
+
+  await page.getByRole('button', { name: '新建筛选' }).click()
+  await page.getByPlaceholder('筛选名称').fill('仅看已完成的任务')
+  await page.getByRole('combobox', { name: '筛选状态' }).click()
+  await page.getByRole('option', { name: '已完成' }).click()
+  await page.locator('.filter-submit').click()
+
+  await expect(page.getByRole('heading', { name: '仅看已完成的任务' })).toBeVisible()
+  await expect(page.getByText('验收初始任务')).toBeVisible()
+  const labelMetrics = await page.locator('.saved-filter-row .list-name').evaluate((element) => {
+    const style = getComputedStyle(element)
+    const box = element.getBoundingClientRect()
+    return { width: box.width, height: box.height, whiteSpace: style.whiteSpace, overflow: style.overflow, textOverflow: style.textOverflow }
+  })
+  expect(labelMetrics.width).toBeGreaterThan(labelMetrics.height)
+  expect(labelMetrics.whiteSpace).toBe('nowrap')
+  expect(labelMetrics.overflow).toBe('hidden')
+  expect(labelMetrics.textOverflow).toBe('ellipsis')
+
+  const search = page.getByPlaceholder('搜索任务')
+  await search.fill('?')
+  await expect(page.locator('.shortcut-dialog')).toHaveCount(0)
+  await search.fill('')
+  await page.getByRole('button', { name: '设置' }).click()
+  await expect(page.locator('.settings-dialog')).toBeVisible()
+  expect(await page.locator('.settings-dialog').evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true)
 })
 
 test('renders the branded quick capture panel without overflow', async ({ page }) => {

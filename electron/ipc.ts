@@ -1,9 +1,7 @@
 import { dialog, ipcMain, shell } from 'electron'
 import fs from 'node:fs/promises'
-import type { AppSettings, BackupPayload, CreateSavedFilterInput, CreateTagInput, CreateTaskInput, CreateTaskListInput, CreateVideoReflectionInput, SaveDailyReviewInput, TaskQuery, UpdateSavedFilterInput, UpdateTagInput, UpdateTaskInput, UpdateTaskListInput, UpdateVideoReflectionInput } from '../src/shared/contracts'
+import type { AppSettings, BackupPayload, CreateSavedFilterInput, CreateTagInput, CreateTaskInput, CreateTaskListInput, CreateVideoReflectionInput, OrganizeTaskInput, OrganizeTaskListInput, SaveDailyReviewInput, TaskQuery, UpdateSavedFilterInput, UpdateTagInput, UpdateTaskInput, UpdateTaskListInput, UpdateVideoReflectionInput } from '../src/shared/contracts'
 import { Repository } from './database/repository'
-
-const repository = new Repository()
 
 function text(value: unknown, field: string): string {
   if (typeof value !== 'string') throw new Error(`${field} 必须是字符串`)
@@ -31,7 +29,7 @@ function parseBackup(input: BackupPayload | string): BackupPayload {
   return object<BackupPayload>(input, '备份数据')
 }
 
-export function registerIpcHandlers(options: { onTasksChanged?: () => void; onScheduleChanged?: () => void; openQuickCapture?: () => void; desktopStatus?: () => { globalShortcut: string; globalShortcutRegistered: boolean }; onSettingsChanged?: (settings: AppSettings) => void } = {}): void {
+export function registerIpcHandlers(repository: Repository, options: { onTasksChanged?: () => void; onScheduleChanged?: () => void; openQuickCapture?: () => void; desktopStatus?: () => { globalShortcut: string; globalShortcutRegistered: boolean }; onSettingsChanging?: (next: AppSettings, current: AppSettings) => (() => void) | void; onSettingsChanged?: (settings: AppSettings) => void } = {}): void {
   const changed = <T>(value: T): T => { options.onTasksChanged?.(); return value }
   ipcMain.handle('tasks:list', (_event, query) => repository.listTasks((query ?? {}) as TaskQuery))
   ipcMain.handle('tasks:create', (_event, input) => changed(repository.createTask(object<CreateTaskInput>(input, '任务'))))
@@ -41,11 +39,13 @@ export function registerIpcHandlers(options: { onTasksChanged?: () => void; onSc
   ipcMain.handle('tasks:remove', (_event, taskId) => changed(repository.removeTask(text(taskId, '任务编号'))))
   ipcMain.handle('tasks:restore-removed', (_event, taskId) => changed(repository.restoreRemoved(text(taskId, '任务编号'))))
   ipcMain.handle('tasks:reorder', (_event, taskIds) => repository.reorderTasks(ids(taskIds, '任务顺序')))
+  ipcMain.handle('tasks:organize', (_event, taskId, input) => changed(repository.organizeTask(text(taskId, '任务编号'), object<OrganizeTaskInput>(input, '任务编排'))))
   ipcMain.handle('lists:list', () => repository.listLists())
   ipcMain.handle('lists:create', (_event, input) => repository.createList(object<CreateTaskListInput>(input, '清单')))
   ipcMain.handle('lists:update', (_event, listId, input) => repository.updateList(text(listId, '清单编号'), object<UpdateTaskListInput>(input, '清单')))
   ipcMain.handle('lists:remove', (_event, listId, options) => repository.removeList(text(listId, '清单编号'), taskPolicy(object<{ taskPolicy?: unknown }>(options ?? {}, '删除选项').taskPolicy)))
   ipcMain.handle('lists:reorder', (_event, listIds) => repository.reorderLists(ids(listIds, '清单顺序')))
+  ipcMain.handle('lists:organize', (_event, listId, input) => repository.organizeList(text(listId, '清单编号'), object<OrganizeTaskListInput>(input, '清单编排')))
   ipcMain.handle('tags:list', () => repository.listTags())
   ipcMain.handle('tags:create', (_event, input) => repository.createTag(object<CreateTagInput>(input, '标签')))
   ipcMain.handle('tags:update', (_event, tagId, input) => repository.updateTag(text(tagId, '标签编号'), object<UpdateTagInput>(input, '标签')))
@@ -62,7 +62,13 @@ export function registerIpcHandlers(options: { onTasksChanged?: () => void; onSc
   ipcMain.handle('flow:month', (_event, month) => repository.listFlowMonth(text(month, '月份')))
   ipcMain.handle('flow:summary', (_event, days) => repository.getFlowSummary(days === undefined ? 7 : Number(days)))
   ipcMain.handle('settings:get', () => repository.getSettings())
-  ipcMain.handle('settings:update', (_event, input) => { const result = repository.updateSettings(object(input, '设置')); options.onSettingsChanged?.(result); return result })
+  ipcMain.handle('settings:update', (_event, input) => {
+    const current = repository.getSettings()
+    const next = repository.validateSettings(object(input, '设置'))
+    const rollback = options.onSettingsChanging?.(next, current)
+    try { const result = repository.updateSettings(next); options.onSettingsChanged?.(result); return result }
+    catch (error) { rollback?.(); throw error }
+  })
   ipcMain.handle('desktop:status', () => options.desktopStatus?.() ?? { globalShortcut: repository.getSettings().globalShortcut, globalShortcutRegistered: false })
   ipcMain.handle('desktop:open-quick-capture', () => options.openQuickCapture?.())
   ipcMain.handle('desktop:open-external', async (_event, input) => { const value = text(input, '链接'); const url = new URL(value); if (!['http:', 'https:'].includes(url.protocol)) throw new Error('仅支持 HTTP 或 HTTPS 链接'); await shell.openExternal(url.toString()) })
@@ -80,9 +86,14 @@ export function registerIpcHandlers(options: { onTasksChanged?: () => void; onSc
       if (result.canceled || !result.filePaths[0]) return null
       payload = JSON.parse(await fs.readFile(result.filePaths[0], 'utf8')) as BackupPayload
     } else payload = parseBackup(input)
-    const result = repository.importBackup(payload)
-    options.onTasksChanged?.()
-    options.onSettingsChanged?.(repository.getSettings())
-    return result
+    const currentSettings = repository.getSettings()
+    const nextSettings = repository.validateSettings(payload.settings as Partial<AppSettings>)
+    const rollback = options.onSettingsChanging?.(nextSettings, currentSettings)
+    try {
+      const result = repository.importBackup({ ...payload, settings: nextSettings })
+      options.onTasksChanged?.()
+      options.onSettingsChanged?.(repository.getSettings())
+      return result
+    } catch (error) { rollback?.(); throw error }
   })
 }

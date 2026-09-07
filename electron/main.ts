@@ -52,7 +52,7 @@ app.whenReady().then(() => {
   desktop = new DesktopController(() => mainWindow, createWindow, windowIconPath, process.env.ELECTRON_RENDERER_URL, rendererFile)
   desktop.start(repository.getSettings().globalShortcut)
   reminderScheduler = new ReminderScheduler(repository, (taskId) => desktop?.showMain(taskId), () => desktop?.showFlow())
-  registerIpcHandlers({ onTasksChanged: () => reminderScheduler?.reschedule(), onScheduleChanged: () => reminderScheduler?.reschedule(), openQuickCapture: () => desktop?.showCapture(), desktopStatus: () => ({ globalShortcut: desktop?.shortcut ?? repository.getSettings().globalShortcut, globalShortcutRegistered: desktop?.shortcutRegistered ?? false }), onSettingsChanged: (settings) => { desktop?.registerShortcut(settings.globalShortcut); desktop?.notifySettingsChanged(settings); reminderScheduler?.reschedule() } })
+  registerIpcHandlers(repository, { onTasksChanged: () => reminderScheduler?.reschedule(), onScheduleChanged: () => reminderScheduler?.reschedule(), openQuickCapture: () => desktop?.showCapture(), desktopStatus: () => ({ globalShortcut: desktop?.shortcut ?? repository.getSettings().globalShortcut, globalShortcutRegistered: desktop?.shortcutRegistered ?? false }), onSettingsChanging: (next, current) => { if (next.globalShortcut === current.globalShortcut) return; if (!desktop?.registerShortcut(next.globalShortcut)) throw new Error('全局快捷键注册失败'); return () => { desktop?.registerShortcut(current.globalShortcut) } }, onSettingsChanged: (settings) => { desktop?.notifySettingsChanged(settings); reminderScheduler?.reschedule() } })
   reminderScheduler.start()
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

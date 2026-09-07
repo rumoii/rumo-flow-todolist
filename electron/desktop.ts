@@ -16,6 +16,15 @@ export class DesktopController {
   showFlow(): void { const window = this.mainWindow() ?? this.createMain(); window.show(); window.focus(); const open = () => window.webContents.send('desktop:open-flow'); if (window.webContents.isLoading()) window.webContents.once('did-finish-load', open); else open() }
   showCapture(): void { if (!this.capture || this.capture.isDestroyed()) { this.capture = new BrowserWindow({ width: 560, height: 200, resizable: false, frame: false, show: false, alwaysOnTop: true, skipTaskbar: true, backgroundColor: '#17171c', icon: this.iconPath, webPreferences: { preload: path.join(path.dirname(this.rendererFile), '../preload/preload.mjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } }); this.capture.on('blur', () => this.capture?.hide()); if (this.rendererUrl) void this.capture.loadURL(`${this.rendererUrl}?capture=1`); else void this.capture.loadFile(this.rendererFile, { query: { capture: '1' } }) } this.capture.show(); this.capture.focus() }
   notifySettingsChanged(settings: AppSettings): void { if (this.capture && !this.capture.isDestroyed()) this.capture.webContents.send('settings:changed', settings) }
-  registerShortcut(shortcut: string): void { globalShortcut.unregisterAll(); this.shortcut = shortcut; this.shortcutRegistered = globalShortcut.register(shortcut, () => this.showCapture()) }
+  registerShortcut(shortcut: string): boolean {
+    if (shortcut === this.shortcut && this.shortcutRegistered) return true
+    const previous = this.shortcut
+    const registered = globalShortcut.register(shortcut, () => this.showCapture())
+    if (!registered) return false
+    if (this.shortcutRegistered && previous !== shortcut) globalShortcut.unregister(previous)
+    this.shortcut = shortcut
+    this.shortcutRegistered = true
+    return true
+  }
   dispose(): void { this.quitting = true; globalShortcut.unregisterAll(); this.tray?.destroy(); this.capture?.destroy() }
 }

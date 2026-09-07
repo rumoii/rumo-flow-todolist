@@ -147,6 +147,13 @@ describe('Repository with an isolated SQLite database', () => {
     expect(repository.listTasks()).toHaveLength(0)
   })
 
+  it('rejects dates that do not exist on the calendar', () => {
+    const repository = new Repository()
+    expect(() => repository.createTask({ title: '无效日期', dueDate: '2026-02-31' })).toThrow('日期格式无效')
+    expect(() => repository.createTask({ title: '无效结束日期', dueDate: '2026-02-28', recurrence: { frequency: 'daily', endDate: '2026-02-31' } })).toThrow('日期格式无效')
+    expect(repository.listTasks()).toHaveLength(0)
+  })
+
   it('persists pin state and transactional task and list ordering', () => {
     const repository = new Repository()
     const firstList = repository.createList({ name: '一号', isPinned: true })
@@ -158,6 +165,23 @@ describe('Repository with an isolated SQLite database', () => {
     const secondTask = repository.createTask({ title: '任务二', priority: 'high', isPinned: true })
     repository.reorderTasks([secondTask.id, firstTask.id])
     expect(repository.listTasks().map((item) => [item.title, item.isPinned])).toEqual([['任务二', true], ['任务一', true]])
+  })
+
+  it('moves tasks and lists between pin groups atomically', () => {
+    const repository = new Repository()
+    const pinnedList = repository.createList({ name: '已置顶', isPinned: true })
+    const regularList = repository.createList({ name: '待置顶' })
+    expect(() => repository.organizeList(regularList.id, { isPinned: true, orderedIds: [regularList.id] })).toThrow('清单顺序不完整')
+    expect(repository.listLists().find((item) => item.id === regularList.id)?.isPinned).toBe(false)
+    repository.organizeList(regularList.id, { isPinned: true, orderedIds: [regularList.id, pinnedList.id] })
+    expect(repository.listLists().filter((item) => item.isPinned).map((item) => item.id)).toEqual([regularList.id, pinnedList.id])
+
+    const pinnedTask = repository.createTask({ title: '已置顶任务', isPinned: true, priority: 'high' })
+    const regularTask = repository.createTask({ title: '待置顶任务', priority: 'high' })
+    expect(() => repository.organizeTask(regularTask.id, { isPinned: true, priority: 'high', orderedIds: [regularTask.id] })).toThrow('任务顺序不完整')
+    expect(repository.getTask(regularTask.id).isPinned).toBe(false)
+    repository.organizeTask(regularTask.id, { isPinned: true, priority: 'high', orderedIds: [regularTask.id, pinnedTask.id] })
+    expect(repository.listTasks().filter((item) => item.isPinned && item.priority === 'high').map((item) => item.id)).toEqual([regularTask.id, pinnedTask.id])
   })
 
   it('deletes a list while either keeping or deleting its tasks', () => {

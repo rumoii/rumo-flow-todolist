@@ -2,7 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App.vue'
-import type { Tag, Task, TaskList, TodoApi } from '../src/shared/contracts'
+import type { SavedFilter, Tag, Task, TaskList, TodoApi } from '../src/shared/contracts'
 
 const makeTask = (overrides: Partial<Task> = {}): Task => ({
   id: 'task-1',
@@ -45,9 +45,11 @@ const makeTag = (overrides: Partial<Tag> = {}): Tag => ({
   ...overrides,
 })
 
-function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = []): TodoApi {
+function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = [], seedFilters: SavedFilter[] = []): TodoApi {
   const tasks = [...seed]
   const tags = [...seedTags]
+  const filters = [...seedFilters]
+  const lists = [{ ...list }]
   return {
     tasks: {
       list: vi.fn(async () => tasks.map((task) => ({ ...task }))),
@@ -74,13 +76,26 @@ function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = []): TodoApi {
         if (index >= 0) tasks.splice(index, 1)
       }),
       reorder: vi.fn(async () => undefined),
+      organize: vi.fn(async (id, input) => {
+        const task = tasks.find((item) => item.id === id)!
+        Object.assign(task, { isPinned: input.isPinned, priority: input.priority })
+        input.orderedIds.forEach((taskId, index) => { const item = tasks.find((candidate) => candidate.id === taskId); if (item) item.sortOrder = index })
+        return { ...task }
+      }),
     },
     lists: {
-      list: vi.fn(async () => [list]),
-      create: vi.fn(async () => list),
-      update: vi.fn(async () => list),
-      remove: vi.fn(async () => undefined),
+      list: vi.fn(async () => lists.map((item) => ({ ...item }))),
+      create: vi.fn(async (input) => { const created = { ...list, id: `list-${lists.length + 1}`, ...input }; lists.push(created); return { ...created } }),
+      update: vi.fn(async (id, input) => { const current = lists.find((item) => item.id === id)!; Object.assign(current, input); return { ...current } }),
+      remove: vi.fn(async (id) => { const index = lists.findIndex((item) => item.id === id); if (index >= 0) lists.splice(index, 1) }),
       reorder: vi.fn(async () => undefined),
+      organize: vi.fn(async (id, input) => {
+        const current = lists.find((item) => item.id === id)
+        if (!current) throw new Error('missing list')
+        current.isPinned = input.isPinned
+        input.orderedIds.forEach((listId, index) => { const item = lists.find((candidate) => candidate.id === listId); if (item) item.sortOrder = index })
+        return { ...current }
+      }),
     },
     tags: {
       list: vi.fn(async () => tags.map((tag) => ({ ...tag }))),
@@ -98,6 +113,12 @@ function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = []): TodoApi {
         const index = tags.findIndex((tag) => tag.id === id)
         if (index >= 0) tags.splice(index, 1)
       }),
+    },
+    filters: {
+      list: vi.fn(async () => filters.map((filter) => ({ ...filter, criteria: { ...filter.criteria } }))),
+      create: vi.fn(async (input) => { const filter: SavedFilter = { id: `filter-${filters.length + 1}`, sortOrder: input.sortOrder ?? filters.length, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', ...input }; filters.push(filter); return { ...filter } }),
+      update: vi.fn(async (id, input) => { const filter = filters.find((item) => item.id === id)!; Object.assign(filter, input); return { ...filter } }),
+      remove: vi.fn(async (id) => { const index = filters.findIndex((item) => item.id === id); if (index >= 0) filters.splice(index, 1) }),
     },
     backup: {
       export: vi.fn(),
@@ -124,6 +145,7 @@ describe('App critical interactions', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     delete window.todoApi
     delete document.documentElement.dataset.theme
     delete document.documentElement.dataset.density
@@ -289,6 +311,55 @@ describe('App critical interactions', () => {
     expect(wrapper.text()).not.toContain('进行中')
   })
 
+  it('shows completed tasks and a filter-specific empty state in saved filters', async () => {
+    const completedFilter: SavedFilter = { id: 'filter-completed', name: '仅看已完成', criteria: { status: 'completed' }, sortOrder: 0, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }
+    const emptyFilter: SavedFilter = { id: 'filter-empty', name: '仅看高优先级', criteria: { priorities: ['high'] }, sortOrder: 1, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }
+    const api = createApi([makeTask({ status: 'completed', title: '完成项' }), makeTask({ id: 'task-2', title: '进行中' })], [], [completedFilter, emptyFilter])
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+
+    await wrapper.findAll('.saved-filter-row .nav-item')[0].trigger('click')
+    expect(wrapper.text()).toContain('完成项')
+    expect(wrapper.text()).not.toContain('进行中')
+    expect(wrapper.find('.saved-filter-row .list-name').text()).toBe('仅看已完成')
+
+    await wrapper.findAll('.saved-filter-row .nav-item')[1].trigger('click')
+    expect(wrapper.text()).toContain('“仅看高优先级”暂无匹配任务')
+    expect(wrapper.text()).not.toContain('添加第一项任务')
+  })
+
+  it('does not open shortcut help while typing and moves focus into dialogs', async () => {
+    window.todoApi = createApi()
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    const searchInput = wrapper.find('.search-box input')
+    await searchInput.trigger('keydown', { key: '?' })
+    expect(wrapper.find('.shortcut-dialog').exists()).toBe(false)
+
+    const settingsButton = wrapper.findAll('.nav-item').find((button) => button.text().includes('设置'))!
+    await settingsButton.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.find('.settings-dialog').element
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('refreshes today after the application crosses midnight', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-07T23:59:30'))
+    window.todoApi = createApi([makeTask({ dueDate: '2026-09-08' })])
+    const wrapper = mount(App)
+    await flushPromises()
+    const todayButton = wrapper.findAll('.nav-item').find((button) => button.text().includes('今天'))!
+    expect(todayButton.find('em').text()).toBe('0')
+
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(todayButton.find('em').text()).toBe('1')
+    wrapper.unmount()
+  })
+
   it('sets task priority and pin state from the task menu', async () => {
     const api = createApi()
     window.todoApi = api
@@ -299,14 +370,14 @@ describe('App critical interactions', () => {
     const pinButton = wrapper.findAll('.task-popup button').find((button) => button.text().includes('置顶任务'))
     await pinButton!.trigger('click')
     await flushPromises()
-    expect(api.tasks.update).toHaveBeenCalledWith('task-1', { isPinned: true })
+    expect(api.tasks.organize).toHaveBeenCalledWith('task-1', expect.objectContaining({ isPinned: true, priority: 'none', orderedIds: ['task-1'] }))
     expect(wrapper.text()).toContain('置顶')
 
     await wrapper.find('.task-row .icon-button').trigger('click')
     const priorityButton = wrapper.findAll('.task-popup button').find((button) => button.text().includes('P1'))
     await priorityButton!.trigger('click')
     await flushPromises()
-    expect(api.tasks.update).toHaveBeenCalledWith('task-1', { priority: 'high' })
+    expect(api.tasks.organize).toHaveBeenLastCalledWith('task-1', expect.objectContaining({ isPinned: true, priority: 'high', orderedIds: ['task-1'] }))
     expect(wrapper.text()).toContain('P1')
   })
 
@@ -320,7 +391,7 @@ describe('App critical interactions', () => {
     const pinButton = wrapper.findAll('.list-popup button').find((button) => button.text().includes('置顶清单'))
     await pinButton!.trigger('click')
     await flushPromises()
-    expect(api.lists.update).toHaveBeenCalledWith('list-1', { isPinned: true })
+    expect(api.lists.organize).toHaveBeenCalledWith('list-1', { isPinned: true, orderedIds: ['list-1'] })
 
     await wrapper.find('.list-menu-button').trigger('click')
     const deleteButton = wrapper.findAll('.list-popup button').find((button) => button.text().includes('删除清单'))

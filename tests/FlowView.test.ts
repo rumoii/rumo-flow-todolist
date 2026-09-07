@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { flushPromises, mount } from '@vue/test-utils'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import FlowView from '../src/components/FlowView.vue'
 import type { DailyReview, FlowDay, TodoApi, VideoReflection } from '../src/shared/contracts'
 
@@ -28,7 +28,6 @@ function createFlowApi(seed: VideoReflection[] = []) {
 }
 
 describe('FlowView', () => {
-  beforeEach(() => { vi.stubGlobal('confirm', vi.fn(() => true)) })
   afterEach(() => { vi.unstubAllGlobals(); delete (window as { todoApi?: TodoApi }).todoApi })
 
   it('stashes a link before opening it and saves details after watching', async () => {
@@ -64,7 +63,10 @@ describe('FlowView', () => {
     await wrapper.find('.video-composer input').setValue('https://example.com/4')
     await wrapper.findAll('button').find((button) => button.text() === '暂存并打开')!.trigger('click')
     await flushPromises()
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('今天已达到 3/3'))
+    expect(wrapper.find('.flow-confirm-dialog').text()).toContain('今天已达到 3/3')
+    await wrapper.find('.flow-confirm-dialog .delete-button').trigger('click')
+    await flushPromises()
+    expect(api.flow.createVideo).toHaveBeenCalled()
 
     await wrapper.findAll('button').find((button) => button.text().includes('每日复盘'))!.trigger('click')
     await wrapper.findAll('button').find((button) => button.text() === '保存今日复盘')!.trigger('click')

@@ -10,7 +10,8 @@ const api: TodoApi = {
     restore: (id) => ipcRenderer.invoke('tasks:restore', id),
     remove: (id) => ipcRenderer.invoke('tasks:remove', id),
     restoreRemoved: (id) => ipcRenderer.invoke('tasks:restore-removed', id),
-    reorder: (ids) => ipcRenderer.invoke('tasks:reorder', ids)
+    reorder: (ids) => ipcRenderer.invoke('tasks:reorder', ids),
+    organize: (id, input) => ipcRenderer.invoke('tasks:organize', id, input)
   },
   tags: {
     list: () => ipcRenderer.invoke('tags:list'),
@@ -50,7 +51,8 @@ const api: TodoApi = {
     create: (input) => ipcRenderer.invoke('lists:create', input),
     update: (id, input) => ipcRenderer.invoke('lists:update', id, input),
     remove: (id, options) => ipcRenderer.invoke('lists:remove', id, options),
-    reorder: (ids) => ipcRenderer.invoke('lists:reorder', ids)
+    reorder: (ids) => ipcRenderer.invoke('lists:reorder', ids),
+    organize: (id, input) => ipcRenderer.invoke('lists:organize', id, input)
   },
   backup: {
     export: () => ipcRenderer.invoke('backup:export'),

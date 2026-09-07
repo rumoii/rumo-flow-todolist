@@ -81,6 +81,12 @@ export type UpdateTaskInput = Partial<Omit<CreateTaskInput, 'recurrence'>> & {
   recurrence?: CreateTaskInput['recurrence']
 }
 
+export interface OrganizeTaskInput {
+  isPinned: boolean
+  priority: TaskPriority
+  orderedIds: string[]
+}
+
 export interface TaskFilterCriteria {
   status?: TaskStatus | 'all'
   listId?: string | null
@@ -108,6 +114,7 @@ export interface TaskQuery extends TaskFilterCriteria {
 
 export interface CreateTaskListInput { name: string; color?: string | null; sortOrder?: number; isPinned?: boolean }
 export interface UpdateTaskListInput { name?: string; color?: string | null; sortOrder?: number; isPinned?: boolean }
+export interface OrganizeTaskListInput { isPinned: boolean; orderedIds: string[] }
 export interface CreateTagInput { name: string; color?: string | null }
 export interface UpdateTagInput { name?: string; color?: string | null }
 export interface CreateSavedFilterInput { name: string; criteria: TaskFilterCriteria; sortOrder?: number }
@@ -219,6 +226,7 @@ export interface TodoApi {
     remove(id: string): Promise<void>
     restoreRemoved(id: string): Promise<void>
     reorder(ids: string[]): Promise<void>
+    organize(id: string, input: OrganizeTaskInput): Promise<Task>
   }
   lists: {
     list(): Promise<TaskList[]>
@@ -226,6 +234,7 @@ export interface TodoApi {
     update(id: string, input: UpdateTaskListInput): Promise<TaskList>
     remove(id: string, options?: { taskPolicy?: 'keep' | 'delete' }): Promise<void>
     reorder(ids: string[]): Promise<void>
+    organize(id: string, input: OrganizeTaskListInput): Promise<TaskList>
   }
   tags: {
     list(): Promise<Tag[]>
