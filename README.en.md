@@ -50,11 +50,11 @@ pnpm package         # Build the Windows installer
 
 ## Installer
 
-Windows installers are published as GitHub Releases rather than committed to the repository. The stable release is `v0.6.1`; this source targets the `v0.7.0-rc.1` prerelease, which does not replace the latest stable release. The RC is for trying draft persistence and modularization; installation, in-place upgrade and uninstallation still require acceptance. Installers are unsigned, so Windows SmartScreen may display a warning. Download from the project Release page and verify the published SHA-256 value. See the [RC release notes](docs/releases/v0.7.0-rc.1.md) for changes and upgrade precautions.
+Windows installers are published as GitHub Releases rather than committed to the repository. The current version is `v0.8.0`, a stable release with drafts, task planning, linked Flow actions and settings improvements. Stable publication does not imply installer acceptance: actual installation, in-place upgrade and uninstallation remain unverified. Installers are unsigned, so Windows SmartScreen may display a warning. Download from the project Release page and verify the published SHA-256 value. See the [v0.8.0 release notes](docs/releases/v0.8.0.md) for changes, data-format restrictions and rollback requirements.
 
 ## Data and backups
 
-Unreleased source changes move tag management to its own sidebar page, video quotas to Flow input records, and reminder controls to daily reviews. Settings now groups appearance, shortcuts, and backups; the Windows title bar follows the selected theme. These changes are not included in the published RC installer. See the [verification record](docs/EVIDENCE-preferences.md).
+Version 0.8.0 moves tag management to its own sidebar page, video quotas to Flow input records, and reminder controls to daily reviews. Settings groups appearance, shortcuts, and backups; the Windows title bar follows the selected theme. See the [verification record](docs/EVIDENCE-preferences.md).
 
 Application data is stored in Electron's user-data directory in a database named `rumo-daiban.sqlite`. Use “Settings → Data & Backups” inside the app to export a JSON backup; avoid copying a live SQLite file while the app is running. Before a restore, Rumo-Flow writes a snapshot to `backups/pre-import-*.json` so the previous state is retained.
 
@@ -62,7 +62,7 @@ The current source imports and exports only `rumo-flow-backup` v5, including sav
 
 Task details, daily reviews, video edits and quick capture preserve drafts after roughly 500 ms without input. Only “draft preserved” confirms persistence. Explicit Save still commits formal data; drafts do not count as completed reviews. Navigation, window closing and normal exit wait for pending writes. Forced termination or power loss may lose input that has not reached disk.
 
-Migration 9 creates a consistent SQLite snapshot in `backups/pre-planning-*.sqlite` before upgrading an existing database. Existing task identifiers, deadlines and drafts remain; tasks start unplanned and task drafts become v2. Rollback requires closing all application processes and restoring the pre-upgrade snapshot. Do not open the upgraded database or import v5 with an older application. Workspace changes do not update an existing Release automatically.
+Migration 9 creates a consistent SQLite snapshot in `backups/pre-planning-*.sqlite` before upgrading an existing database. Existing task identifiers, deadlines and drafts remain; tasks start unplanned and task drafts become v2. Rollback requires closing all application processes and restoring the pre-upgrade snapshot. Do not open the upgraded database or import v5 with an older application.
 
 ### Planning and linked actions
 
