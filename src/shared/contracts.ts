@@ -1,3 +1,5 @@
+import type { DraftKind, DraftSnapshot, DraftWrite, DraftRef, DraftRecord, DataDomain } from './drafts'
+export type { DraftKind, DraftSnapshot, DraftWrite, DraftRef, DraftRecord, DataDomain } from './drafts'
 export type TaskPriority = 'none' | 'low' | 'medium' | 'high'
 export type TaskStatus = 'active' | 'completed'
 export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly'
@@ -55,6 +57,7 @@ export interface Task {
   createdAt: string
   updatedAt: string
   completedAt: string | null
+  recurrence?: RecurrenceRule | null
 }
 
 export interface CreateTaskInput {
@@ -201,7 +204,7 @@ export interface DesktopStatus {
 
 export interface BackupPayload {
   format: 'rumo-flow-backup' | 'rumo-daiban-backup'
-  version: 1 | 2 | 3
+  version: 1 | 2 | 3 | 4
   exportedAt: string
   taskLists: TaskList[]
   tasks: Task[]
@@ -212,11 +215,22 @@ export interface BackupPayload {
   flowDays?: DailyReview[]
   videoReflections?: VideoReflection[]
   settings: Record<string, unknown>
+  drafts?: DraftRecord[]
 }
 
 export interface ImportResult { importedTasks: number; importedLists: number; importedRules: number; importedReviews: number; importedVideos: number }
 
 export interface TodoApi {
+  drafts: {
+    get(kind: DraftKind, key: string): Promise<DraftSnapshot>
+    put(input: DraftWrite): Promise<DraftSnapshot>
+    discard(input: DraftRef): Promise<DraftSnapshot>
+    commit(input: DraftRef & { acceptChanges?: boolean }): Promise<unknown>
+  }
+  lifecycle: {
+    onPrepare(callback: (request: { id: string; reason: 'backup' | 'import' | 'close' }) => Promise<void>): () => void
+    onResume(callback: (replaced: boolean) => void): () => void
+  }
   tasks: {
     list(query?: TaskQuery): Promise<Task[]>
     create(input: CreateTaskInput): Promise<Task>
@@ -263,6 +277,8 @@ export interface TodoApi {
     summary(days?: number): Promise<FlowSummary>
   }
   desktop: {
+    onDataChanged(callback: (domains: DataDomain[]) => void): () => void
+    onCaptureShown(callback: () => void): () => void
     status(): Promise<DesktopStatus>
     openQuickCapture(): Promise<void>
     openExternal(url: string): Promise<void>

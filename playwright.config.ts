@@ -1,5 +1,11 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const port = Number(process.env.RUMO_E2E_PORT ?? 5173)
+if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+  throw new Error('RUMO_E2E_PORT must be an integer between 1024 and 65535')
+}
+const baseURL = `http://127.0.0.1:${port}`
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
@@ -7,7 +13,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'test-results/playwright-report' }]],
   outputDir: 'test-results/playwright-artifacts',
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'off',
@@ -23,9 +29,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm exec vite --config tests/vite.config.ts --host 127.0.0.1 --port 5173',
-    url: 'http://127.0.0.1:5173',
-    reuseExistingServer: true,
+    command: `pnpm exec vite --config tests/vite.config.ts --host 127.0.0.1 --port ${port} --strictPort`,
+    url: baseURL,
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 })

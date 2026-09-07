@@ -174,6 +174,41 @@ function migrate(database: Database.Database): void {
       database.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(7, new Date().toISOString())
     })()
   }
+  if ((applied?.version ?? 0) < 8) {
+    database.transaction(() => {
+      database.exec(`
+        CREATE TABLE editor_draft_meta (id INTEGER PRIMARY KEY CHECK(id=1), generation TEXT NOT NULL);
+        INSERT INTO editor_draft_meta VALUES (1, lower(hex(randomblob(16))));
+        CREATE TABLE editor_drafts (
+          kind TEXT NOT NULL CHECK(kind IN ('task','review','video','capture')),
+          entity_key TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+          revision INTEGER NOT NULL DEFAULT 0, base_updated_at TEXT,
+          payload TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(kind, entity_key)
+        );
+        CREATE TRIGGER drafts_task_deleted AFTER UPDATE OF deleted_at ON tasks WHEN NEW.deleted_at IS NOT NULL BEGIN
+          UPDATE editor_drafts SET payload=NULL,revision=revision+1 WHERE kind='task' AND entity_key=NEW.id;
+        END;
+        CREATE TRIGGER drafts_task_removed AFTER DELETE ON tasks BEGIN
+          UPDATE editor_drafts SET payload=NULL,revision=revision+1 WHERE kind='task' AND entity_key=OLD.id;
+        END;
+        CREATE TRIGGER drafts_video_removed AFTER DELETE ON flow_videos BEGIN
+          UPDATE editor_drafts SET payload=NULL,revision=revision+1 WHERE kind='video' AND entity_key=OLD.id;
+          UPDATE editor_drafts SET payload=json_set(payload,'$.inputVideoId',NULL,'$.inputType','none'),revision=revision+1
+            WHERE kind='review' AND payload IS NOT NULL AND json_extract(payload,'$.inputVideoId')=OLD.id;
+        END;
+        CREATE TRIGGER drafts_list_removed AFTER DELETE ON task_lists BEGIN
+          UPDATE editor_drafts SET payload=json_set(payload,'$.listId',NULL),revision=revision+1
+            WHERE kind='task' AND payload IS NOT NULL AND json_extract(payload,'$.listId')=OLD.id;
+        END;
+        CREATE TRIGGER drafts_tag_removed AFTER DELETE ON tags BEGIN
+          UPDATE editor_drafts SET payload=json_set(payload,'$.tagIds',json((SELECT json_group_array(value) FROM json_each(editor_drafts.payload,'$.tagIds') WHERE value<>OLD.id))),revision=revision+1
+            WHERE kind='task' AND payload IS NOT NULL AND EXISTS(SELECT 1 FROM json_each(editor_drafts.payload,'$.tagIds') WHERE value=OLD.id);
+        END;
+      `)
+      database.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(8, new Date().toISOString())
+    })()
+  }
+
 }
 
 export function closeDatabase(): void {

@@ -71,6 +71,7 @@ describe('QuickCapture', () => {
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ title: '整理会议纪要', tagIds: [] }))
     expect(wrapper.text()).toContain('已加入收集箱')
     vi.advanceTimersByTime(720)
+    await flushPromises()
     expect(close).toHaveBeenCalledOnce()
   })
 

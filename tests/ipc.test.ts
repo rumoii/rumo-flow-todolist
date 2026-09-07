@@ -24,7 +24,7 @@ describe('settings IPC ordering', () => {
       validateSettings: vi.fn(() => next),
       updateSettings: vi.fn(),
     } as unknown as Repository
-    registerIpcHandlers(repository, { onSettingsChanging: () => { throw new Error('shortcut conflict') } })
+    registerIpcHandlers({ settings: repository, backup: repository } as never, { onSettingsChanging: () => { throw new Error('shortcut conflict') } })
 
     const update = electronState.handlers.get('settings:update')!
     expect(() => update({}, next)).toThrow('shortcut conflict')
@@ -38,7 +38,7 @@ describe('settings IPC ordering', () => {
       validateSettings: vi.fn(() => next),
       updateSettings: vi.fn(() => { throw new Error('database write failed') }),
     } as unknown as Repository
-    registerIpcHandlers(repository, { onSettingsChanging: () => rollback })
+    registerIpcHandlers({ settings: repository, backup: repository } as never, { onSettingsChanging: () => rollback })
 
     const update = electronState.handlers.get('settings:update')!
     expect(() => update({}, next)).toThrow('database write failed')
@@ -53,7 +53,7 @@ describe('settings IPC ordering', () => {
       validateSettings: vi.fn(() => next),
       importBackup: vi.fn(() => { events.push('import'); return { importedTasks: 0 } }),
     } as unknown as Repository
-    registerIpcHandlers(repository, { onSettingsChanging: () => { events.push('shortcut') } })
+    registerIpcHandlers({ settings: repository, backup: repository } as never, { onSettingsChanging: () => { events.push('shortcut') } })
 
     const importBackup = electronState.handlers.get('backup:import')!
     await importBackup({}, payload)

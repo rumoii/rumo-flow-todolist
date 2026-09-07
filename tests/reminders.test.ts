@@ -29,7 +29,7 @@ describe('ReminderScheduler flow reminder lifecycle', () => {
       nextFlowReviewReminder: vi.fn().mockReturnValueOnce({ date: '2026-08-30', remindAt: new Date('2026-08-30T22:00:00') }).mockReturnValue(null),
       claimFlowReviewReminder: vi.fn(() => true),
     } as unknown as Repository
-    const scheduler = new ReminderScheduler(repository, vi.fn(), showFlow)
+    const scheduler = new ReminderScheduler({ tasks: repository, flow: repository } as never, vi.fn(), showFlow)
 
     scheduler.start()
     await vi.advanceTimersByTimeAsync(1000)
@@ -55,7 +55,7 @@ describe('ReminderScheduler flow reminder lifecycle', () => {
       nextFlowReviewReminder: vi.fn(() => null),
       markReminderNotified: vi.fn(),
     } as unknown as Repository
-    const scheduler = new ReminderScheduler(repository, vi.fn(), vi.fn())
+    const scheduler = new ReminderScheduler({ tasks: repository, flow: repository } as never, vi.fn(), vi.fn())
 
     scheduler.start()
 

@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import DraftStatus from './components/DraftStatus.vue'
+import { createDraftCoordinator, draftCoordinatorKey } from './composables/draft-coordinator'
 import { parseQuickAdd } from './shared/quick-add'
 import { ensureTags } from './shared/tag-utils'
 import type { AppSettings, Tag, TaskList } from './shared/contracts'
 
 const title = ref('')
+const drafts = inject(draftCoordinatorKey, null) ?? createDraftCoordinator(window.todoApi)
+let removeShownListener: (() => void) | undefined
+let hydrating = false
+const loadingCapture = ref(true)
+let refreshSequence = 0
 const input = ref<HTMLInputElement>()
 const lists = ref<TaskList[]>([])
 const tags = ref<Tag[]>([])
@@ -19,28 +26,60 @@ function applyTheme(settings: Pick<AppSettings, 'theme' | 'density'>) {
   document.documentElement.dataset.density = settings.density
 }
 
-function closeCapture() {
+async function closeCapture() {
   window.clearTimeout(closeTimer)
-  window.close()
+  try { await drafts.flush(); window.close() } catch { message.value = '草稿保留失败，请重试后关闭'; messageKind.value = 'error' }
 }
 
-onMounted(async () => {
+async function refreshCapture() {
+  window.clearTimeout(closeTimer)
+  const request = ++refreshSequence
+  hydrating = true
+  loadingCapture.value = true
+  try {
   const [loadedLists, loadedTags, settings] = await Promise.all([window.todoApi.lists.list(), window.todoApi.tags.list(), window.todoApi.settings.get()])
+  if (request !== refreshSequence) return
   lists.value = loadedLists
   tags.value = loadedTags
   applyTheme(settings ?? { theme: 'dark', density: 'comfortable' })
-  removeSettingsListener = window.todoApi.settings.onChanged?.(applyTheme)
+  title.value = (await drafts.open('capture', 'global', { title: title.value })).title
+  } catch { message.value = '快速捕获加载失败，请重新打开'; messageKind.value = 'error' }
+  finally { if (request === refreshSequence) { hydrating = false; loadingCapture.value = false } }
   await nextTick()
   input.value?.focus()
+}
+onMounted(async () => {
+  removeSettingsListener = window.todoApi.settings.onChanged?.(applyTheme)
+  removeShownListener = window.todoApi.desktop.onCaptureShown?.(() => { void refreshCapture() })
+  await refreshCapture()
 })
+watch(title, value => {
+  if (value.trim()) { window.clearTimeout(closeTimer); message.value = '' }
+  if (!hydrating) drafts.update('capture', 'global', { title: value })
+}, { flush: 'sync' })
+watch(drafts.epoch, () => { title.value = ''; void refreshCapture() })
+async function discardCapture() {
+  if (!window.confirm('放弃尚未添加的任务输入？')) return
+  try { await drafts.discard('capture', 'global'); title.value = ''; await refreshCapture() } catch { message.value = '放弃草稿失败'; messageKind.value = 'error' }
+}
 
 async function submit() {
-  if (submitting.value) return
+  if (submitting.value || loadingCapture.value) return
   const parsed = parseQuickAdd(title.value, lists.value, tags.value)
   if (!parsed.input.title.trim()) return
 
   submitting.value = true
   try {
+    if (drafts.supported) {
+      await drafts.commit('capture', 'global')
+      title.value = ''
+      await drafts.open('capture', 'global', { title: '' })
+      messageKind.value = 'success'
+      message.value = '任务已保存'
+      window.clearTimeout(closeTimer)
+      closeTimer = window.setTimeout(closeCapture, 720)
+      return
+    }
     const resolved = await ensureTags(window.todoApi, tags.value, parsed.tagNames)
     await window.todoApi.tasks.create({ ...parsed.input, tagIds: resolved.tags.map(tag => tag.id) })
     title.value = ''
@@ -61,11 +100,12 @@ async function submit() {
   }
 }
 
-onBeforeUnmount(() => { window.clearTimeout(closeTimer); removeSettingsListener?.() })
+onBeforeUnmount(() => { window.clearTimeout(closeTimer); removeSettingsListener?.(); removeShownListener?.() })
 </script>
 
 <template>
-  <main class="capture-shell" @keydown.esc.prevent="closeCapture">
+  <main class="capture-shell" :inert="drafts.paused.value || drafts.saving.value" @keydown.esc.prevent="closeCapture">
+    <DraftStatus kind="capture" draft-key="global" @discard="discardCapture" />
     <section class="capture-card">
       <header class="capture-header">
         <div class="capture-brand">
@@ -80,7 +120,7 @@ onBeforeUnmount(() => { window.clearTimeout(closeTimer); removeSettingsListener?
 
       <div class="capture-input-wrap" :class="{ 'has-message': message }">
         <span class="capture-input-icon" aria-hidden="true">＋</span>
-        <input ref="input" v-model="title" :disabled="submitting" aria-label="快速捕获任务" placeholder="写下任务…" @keydown.enter.prevent="submit">
+        <input ref="input" v-model="title" :disabled="submitting || loadingCapture" aria-label="快速捕获任务" placeholder="写下任务…" @keydown.enter.prevent="submit">
         <kbd>Enter</kbd>
       </div>
 

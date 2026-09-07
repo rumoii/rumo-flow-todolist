@@ -1,6 +1,6 @@
 {
   "name": "rumo-flow-todolist",
-  "version": "0.6.1",
+  "version": "0.7.0-rc.1",
   "private": true,
   "type": "module",
   "description": "Rumo-Flow 极简个人计划与待办",
@@ -9,12 +9,13 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "typecheck": "vue-tsc --noEmit",
+    "typecheck": "vue-tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "package": "pnpm build && electron-builder",
     "test": "vitest run",
     "test:integration": "vitest run tests/repository.test.ts",
     "test:e2e": "playwright test",
+    "test:desktop": "pnpm build && playwright test --config tests/electron.config.ts",
     "test:watch": "vitest",
     "postinstall": "electron-builder install-app-deps"
   },

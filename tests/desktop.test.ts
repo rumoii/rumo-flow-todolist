@@ -51,6 +51,18 @@ describe('DesktopController shortcut lifecycle', () => {
     expect(controller.shortcutRegistered).toBe(false)
   })
 
+  it('does not open windows while a dataset operation is preparing', () => {
+    const createMain = vi.fn()
+    const controller = new DesktopController(() => undefined, createMain as never, 'icon.ico', undefined, 'index.html')
+    controller.setWindowGuard(() => false)
+    controller.showMain()
+    controller.showFlow()
+    expect(() => controller.showCapture()).not.toThrow()
+    expect(createMain).not.toHaveBeenCalled()
+    controller.setWindowGuard(() => true)
+    expect(() => controller.showCapture()).toThrow()
+  })
+
   it('unregisters the previous shortcut only after the new one succeeds', () => {
     electronState.register.mockReturnValue(true)
     const controller = new DesktopController(() => undefined, vi.fn() as never, 'icon.ico', undefined, 'index.html')

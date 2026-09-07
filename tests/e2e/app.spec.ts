@@ -274,7 +274,19 @@ test('drags a task into the pin zone and reorders custom lists', async ({ page }
   await page.getByPlaceholder('清单名称').press('Enter')
   const personalRow = page.locator('.list-row').filter({ hasText: '个人' })
   const workRow = page.locator('.list-row').filter({ hasText: '工作' })
-  await personalRow.dragTo(workRow)
+  await page.locator('.sidebar').evaluate(async element => {
+    await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => undefined)))
+  })
+  const source = await personalRow.boundingBox()
+  const target = await workRow.boundingBox()
+  expect(source).not.toBeNull()
+  expect(target).not.toBeNull()
+  await page.mouse.move(source!.x + 5, source!.y + source!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(target!.x + 5, target!.y + target!.height / 2, { steps: 10 })
+  await page.mouse.move(target!.x + 6, target!.y + target!.height / 2)
+  await expect(workRow).toHaveClass(/drag-target/)
+  await page.mouse.up()
   await expect(page.locator('.list-name').first()).toHaveText('个人')
 })
 
@@ -328,6 +340,9 @@ test('keeps saved-filter names horizontal and applies completed status before th
 
   await page.getByRole('button', { name: '新建筛选' }).click()
   await page.getByPlaceholder('筛选名称').fill('仅看已完成的任务')
+  await page.locator('.sidebar').evaluate(async element => {
+    await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => undefined)))
+  })
   await page.getByRole('combobox', { name: '筛选状态' }).click()
   await page.getByRole('option', { name: '已完成' }).click()
   await page.locator('.filter-submit').click()
@@ -446,4 +461,28 @@ test('keeps the flow layout stable while switching tabs with different heights',
 
   expect(review).toEqual(input)
   await expect(page.locator('.main-content')).toHaveCSS('scrollbar-gutter', 'stable')
+})
+
+
+test('opens task details with the keyboard and returns focus on escape', async ({ page }) => {
+  await page.goto('/')
+  const opener = page.getByRole('button', { name: '打开任务 验收初始任务', exact: true })
+  await opener.focus()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: '任务详情', exact: true })
+  await expect(dialog).toBeVisible()
+  await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+})
+
+test('preserves unfinished review text when leaving the flow page', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '心流 记录与复盘', exact: true }).click()
+  await page.getByRole('tab', { name: '每日复盘 待完成', exact: true }).click()
+  await page.getByPlaceholder('哪件事值得肯定？').fill('切页不能丢失的复盘')
+  await page.getByRole('button', { name: '今天 1', exact: true }).click()
+  await page.getByRole('button', { name: '心流 记录与复盘', exact: true }).click()
+  await expect(page.getByPlaceholder('哪件事值得肯定？')).toHaveValue('切页不能丢失的复盘')
 })
