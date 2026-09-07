@@ -75,11 +75,14 @@ const reviewDirty = computed(() => Object.entries(reviewDraft.value).some(([key,
   <FlowPreferences kind="reminder" />
   <DraftStatus kind="review" :draft-key="selectedDate" @discard="discardReview" />
   <FlowFacts :date="selectedDate" />
-  <button class="text-button" :aria-expanded="expandedReview" @click="expandedReview = !expandedReview">{{ expandedReview ? '收起为三问' : '展开完整六问' }}</button>
-<div :class="['review-grid', { 'light-review': !expandedReview }]">
+            <button type="button" class="secondary-button review-toggle" :aria-expanded="expandedReview" aria-controls="flow-review-questions" @click="expandedReview = !expandedReview">
+              <span>{{ expandedReview ? '收起为简版复盘（3 问）' : '展开完整复盘（6 问）' }}</span>
+              <svg :class="{ expanded: expandedReview }" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+            <div id="flow-review-questions" :class="['review-grid', { 'light-review': !expandedReview }]">
               <label><span>1 · 今天做好了什么？</span><textarea v-model="reviewDraft.didWell" rows="3" placeholder="哪件事值得肯定？"></textarea></label>
               <label v-show="expandedReview"><span>2 · 今天什么没做好？</span><textarea v-model="reviewDraft.didNotWell" rows="3" placeholder="如实写下，不责备自己。"></textarea></label>
-              <label class="wide"><span>{{ expandedReview ? 3 : 2 }} · 为什么会这样？下次准备怎么调整？</span><textarea v-model="reviewDraft.reflection" rows="3" placeholder="找到原因，再留一个可执行的调整。"></textarea></label>
+              <label class="wide"><span>{{ expandedReview ? 3 : 2 }} · 今天有什么可以改进？下次可以怎么做？</span><textarea v-model="reviewDraft.reflection" rows="3" placeholder="写下一件不够满意的事，以及下次可以尝试的做法。"></textarea></label>
               <label v-show="expandedReview" class="wide"><span>4 · 今天最有价值的一个输入是什么？</span><SelectField v-model="reviewInputChoice" aria-label="今日最有价值的输入" :options="inputOptions" /><textarea v-if="reviewInputChoice === 'other'" v-model="reviewDraft.inputText" rows="2" placeholder="来自哪本书、哪篇文章或哪次谈话？"></textarea></label>
               <label v-show="expandedReview"><span>5 · 今天完成的一个输出是什么？</span><textarea v-model="reviewDraft.outputText" rows="3" placeholder="文字、作品、表达或一次行动。"></textarea></label>
               <label><span>{{ expandedReview ? 6 : 3 }} · 明天有什么期待？准备从哪一步开始？</span><textarea v-model="reviewDraft.tomorrowExpectation" rows="3" placeholder="给明天留一个轻盈的起点。"></textarea></label>
