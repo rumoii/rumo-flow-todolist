@@ -1,6 +1,7 @@
 import { getDatabase } from './db'
 import { timestamp, validCalendarDate } from './common'
 import { draftToTask } from '../../src/shared/drafts'
+import { validPlan } from '../../src/shared/planning'
 import type { DraftPayloads, DraftKind, DraftRecord, DraftRef, DraftSnapshot, DraftWrite } from '../../src/shared/drafts'
 import { parseQuickAdd } from '../../src/shared/quick-add'
 import type { BackupPayload } from '../../src/shared/contracts'
@@ -10,7 +11,7 @@ import type { OrganizationRepository } from './organization'
 interface DraftRow {
   kind: DraftKind
   entity_key: string
-  version: 1
+  version: 2
   revision: number
   base_updated_at: string | null
   payload: string | null
@@ -43,6 +44,7 @@ export function validateDraftPayload(kind: DraftKind, key: string, value: unknow
       throw new Error('复盘草稿关联无效')
   }
   if (kind === 'task') {
+    if (!validPlan(payload.plan) || (payload.focusDate !== null && (typeof payload.focusDate !== 'string' || !payload.plan || (payload.plan as { kind: string; start: string }).kind !== 'day' || (payload.plan as { start: string }).start !== payload.focusDate))) throw new Error('草稿安排无效')
     if (payload.listId !== null && typeof payload.listId !== 'string')
       throw new Error('清单草稿无效')
     if (!Array.isArray(payload.tagIds) || payload.tagIds.some(tag => typeof tag !== 'string'))
@@ -132,7 +134,7 @@ export class DraftRepository {
         if (review.inputVideoId && !getDatabase().prepare('SELECT 1 FROM flow_videos WHERE id=? AND entry_date=?').get(review.inputVideoId, input.key))
           throw new Error('草稿视频已删除，请重新打开编辑器')
       }
-      getDatabase().prepare(`INSERT INTO editor_drafts(kind,entity_key,revision,base_updated_at,payload,updated_at) VALUES (?,?,?,?,?,?)
+      getDatabase().prepare(`INSERT INTO editor_drafts(kind,entity_key,version,revision,base_updated_at,payload,updated_at) VALUES (?,?,2,?,?,?,?)
     ON CONFLICT(kind,entity_key) DO UPDATE SET revision=excluded.revision,base_updated_at=excluded.base_updated_at,payload=excluded.payload,updated_at=excluded.updated_at`)
         .run(input.kind, input.key, input.revision + 1, input.baseUpdatedAt, JSON.stringify(input.payload), timestamp())
       return this.get(input.kind, input.key)
@@ -141,7 +143,7 @@ export class DraftRepository {
   discard(input: DraftRef): DraftSnapshot {
     return getDatabase().transaction(() => {
       this.check(input)
-      getDatabase().prepare(`INSERT INTO editor_drafts(kind,entity_key,revision,payload,updated_at) VALUES (?,?,?,NULL,?)
+      getDatabase().prepare(`INSERT INTO editor_drafts(kind,entity_key,version,revision,payload,updated_at) VALUES (?,?,2,?,NULL,?)
     ON CONFLICT(kind,entity_key) DO UPDATE SET revision=excluded.revision,payload=NULL,updated_at=excluded.updated_at`)
         .run(input.kind, input.key, input.revision + 1, timestamp())
       return this.get(input.kind, input.key)
@@ -185,13 +187,11 @@ export class DraftRepository {
     return (getDatabase().prepare('SELECT * FROM editor_drafts WHERE payload IS NOT NULL ORDER BY kind,entity_key').all() as DraftRow[]).map(row => this.map(row))
   }
   validateBackup(payload: BackupPayload): void {
-    if (payload.version !== 4)
-      return
     if (!Array.isArray(payload.drafts))
       throw new Error('备份草稿缺失')
     const identities = new Set<string>()
     for (const draft of payload.drafts) {
-      if (!draft || draft.version !== 1 || !Number.isSafeInteger(draft.revision) || draft.revision < 1 || typeof draft.updatedAt !== 'string' || (draft.baseUpdatedAt !== null && typeof draft.baseUpdatedAt !== 'string'))
+      if (!draft || draft.version !== 2 || !Number.isSafeInteger(draft.revision) || draft.revision < 1 || typeof draft.updatedAt !== 'string' || (draft.baseUpdatedAt !== null && typeof draft.baseUpdatedAt !== 'string'))
         throw new Error('备份草稿格式无效')
       validateDraftPayload(draft.kind, draft.key, draft.payload)
       const identity = `${draft.kind}:${draft.key}`

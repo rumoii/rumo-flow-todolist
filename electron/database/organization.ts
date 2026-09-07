@@ -1,4 +1,5 @@
 import { getDatabase } from './db'
+import { removeTasks } from './task-trash'
 import { timestamp, newId, mapList, mapTag } from './common'
 import type { CreateSavedFilterInput, CreateTagInput, CreateTaskListInput, SavedFilter, Tag, TaskFilterCriteria, TaskList, UpdateSavedFilterInput, UpdateTagInput, UpdateTaskListInput } from '../../src/shared/contracts'
 export class OrganizationRepository {
@@ -33,7 +34,7 @@ export class OrganizationRepository {
     return mapList(db.prepare('SELECT * FROM task_lists WHERE id=?').get(id))
   }
   removeList(id: string, policy: 'keep' | 'delete' = 'keep'): void { const db = getDatabase(); db.transaction(() => { if (policy === 'delete')
-    db.prepare('UPDATE tasks SET deleted_at=?,updated_at=? WHERE list_id=?').run(timestamp(), timestamp(), id)
+    removeTasks((db.prepare('SELECT id FROM tasks WHERE list_id=? AND deleted_at IS NULL').all(id) as { id: string }[]).map(row => row.id))
   else
     db.prepare('UPDATE tasks SET list_id=NULL,updated_at=? WHERE list_id=?').run(timestamp(), id); if (db.prepare('DELETE FROM task_lists WHERE id=?').run(id).changes !== 1)
     throw new Error('清单不存在'); })(); }

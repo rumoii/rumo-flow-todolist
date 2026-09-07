@@ -1,6 +1,7 @@
 import { app, BrowserWindow, globalShortcut, Menu, Tray } from 'electron'
 import path from 'node:path'
 import type { AppSettings } from '../src/shared/contracts'
+import { titleBarAppearance } from './window-appearance'
 export class DesktopController {
   private tray?: Tray
   private capture?: BrowserWindow
@@ -85,9 +86,16 @@ export class DesktopController {
     this.sendWhenReady(this.capture, 'desktop:capture-shown')
   }
   notifySettingsChanged(settings: AppSettings): void {
+    const main = this.mainWindow()
+    if (process.platform === 'win32' && main && !main.isDestroyed()) {
+      try { main.setTitleBarOverlay(titleBarAppearance(settings.theme)) }
+      catch (error) { console.error('标题栏主题同步失败', error) }
+    }
     for (const window of BrowserWindow.getAllWindows())
-      if (!window.isDestroyed())
-        window.webContents.send('settings:changed', settings)
+      if (!window.isDestroyed()) {
+        try { window.webContents.send('settings:changed', settings) }
+        catch (error) { console.error('窗口设置同步失败', error) }
+      }
   }
   registerShortcut(shortcut: string): boolean {
     if (shortcut === this.shortcut && this.shortcutRegistered)

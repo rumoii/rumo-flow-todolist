@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { migratePlanning, snapshotBeforePlanning } from './planning-migration'
 
 let db: Database.Database | undefined
 let testDatabasePath: string | undefined
@@ -15,7 +16,8 @@ export function getDatabase(databasePath?: string): Database.Database {
   db.pragma('journal_mode = WAL')
   db.pragma('busy_timeout = 5000')
   db.pragma('foreign_keys = ON')
-  migrate(db)
+  try { migrate(db) }
+  catch (error) { db.close(); db = undefined; throw error }
   return db
 }
 
@@ -30,6 +32,7 @@ function migrate(database: Database.Database): void {
     CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
   `)
   const applied = database.prepare('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1').get() as { version?: number } | undefined
+  snapshotBeforePlanning(database, applied?.version ?? 0)
   if ((applied?.version ?? 0) < 1) {
     database.transaction(() => {
       database.exec(`
@@ -209,6 +212,7 @@ function migrate(database: Database.Database): void {
     })()
   }
 
+  migratePlanning(database, applied?.version ?? 0)
 }
 
 export function closeDatabase(): void {

@@ -5,6 +5,9 @@ import App from '../src/App.vue'
 import type { SavedFilter, Tag, Task, TaskList, TodoApi } from '../src/shared/contracts'
 
 const makeTask = (overrides: Partial<Task> = {}): Task => ({
+  plan: { kind: 'day', start: new Date().toLocaleDateString('sv-SE') },
+  focusDate: null,
+  deletionBatch: null,
   id: 'task-1',
   title: '测试任务',
   listId: null,
@@ -67,7 +70,7 @@ function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = [], seedFilter
         const task = tasks.find((item) => item.id === id)
         if (task) task.status = 'completed'
       }),
-      restore: vi.fn(async (id) => {
+      reopen: vi.fn(async (id) => {
         const task = tasks.find((item) => item.id === id)
         if (task) task.status = 'active'
       }),
@@ -120,6 +123,7 @@ function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = [], seedFilter
       update: vi.fn(async (id, input) => { const filter = filters.find((item) => item.id === id)!; Object.assign(filter, input); return { ...filter } }),
       remove: vi.fn(async (id) => { const index = filters.findIndex((item) => item.id === id); if (index >= 0) filters.splice(index, 1) }),
     },
+    flow: { actionLinks: vi.fn(async () => []), taskFacts: vi.fn(async () => ({ completed: [], pending: [] })) },
     backup: {
       export: vi.fn(),
       import: vi.fn(),
@@ -130,6 +134,7 @@ function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = [], seedFilter
       onChanged: vi.fn(() => () => undefined),
     },
     desktop: {
+      onDataChanged: vi.fn(() => () => undefined),
       status: vi.fn(async () => ({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: true })),
       openQuickCapture: vi.fn(),
       openExternal: vi.fn(),
@@ -162,11 +167,10 @@ describe('App critical interactions', () => {
     expect(document.documentElement.dataset.density).toBe('compact')
 
     await wrapper.findAll('.nav-item').find((button) => button.text().includes('设置'))!.trigger('click')
-    await wrapper.get('[aria-label="界面主题"]').trigger('click')
-    await wrapper.findAll('[role="option"]').find((option) => option.text().includes('浅色'))!.trigger('click')
+    await wrapper.findAll('.theme-option').find(option => option.text().includes('浅色'))!.trigger('click')
     expect(document.documentElement.dataset.theme).toBe('light')
     await flushPromises()
-    expect(api.settings.update).toHaveBeenCalledWith(expect.objectContaining({ theme: 'light', density: 'compact' }))
+    expect(api.settings.update).toHaveBeenCalledWith({ theme: 'light' })
   })
 
   it('restores the last saved theme when persistence fails', async () => {
@@ -178,13 +182,12 @@ describe('App critical interactions', () => {
     await flushPromises()
 
     await wrapper.findAll('.nav-item').find((button) => button.text().includes('设置'))!.trigger('click')
-    await wrapper.get('[aria-label="界面主题"]').trigger('click')
-    await wrapper.findAll('[role="option"]').find((option) => option.text().includes('深色'))!.trigger('click')
+    await wrapper.findAll('.theme-option').find(option => option.text().includes('深色'))!.trigger('click')
     expect(document.documentElement.dataset.theme).toBe('dark')
     rejectUpdate?.(new Error('write failed'))
     await flushPromises()
     expect(document.documentElement.dataset.theme).toBe('light')
-    expect(wrapper.text()).toContain('偏好保存失败')
+    expect(wrapper.text()).toContain('主题保存失败，已恢复原设置')
   })
 
   it('adds a task from the quick input on Enter', async () => {
@@ -198,7 +201,7 @@ describe('App critical interactions', () => {
     expect(wrapper.text()).toContain('整理会议纪要')
   })
 
-  it('keeps today count and list in sync for an undated custom-list task', async () => {
+  it('keeps unplanned custom-list tasks out of today', async () => {
     const api = createApi([])
     window.todoApi = api
     const wrapper = mount(App)
@@ -212,9 +215,8 @@ describe('App critical interactions', () => {
 
     const todayButton = wrapper.findAll('.nav-item').find((button) => button.text().includes('今天'))!
     await todayButton.trigger('click')
-    expect(todayButton.find('em').text()).toBe('1')
-    expect(wrapper.text()).toContain('开学前任务')
-    expect(wrapper.text()).toContain('未安排日期')
+    expect(todayButton.find('em').text()).toBe('0')
+    expect(wrapper.findAll('.task-row')).toHaveLength(0)
   })
 
   it('creates an unknown Quick Add tag and binds it to the new task', async () => {
@@ -349,7 +351,7 @@ describe('App critical interactions', () => {
   it('refreshes today after the application crosses midnight', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-09-07T23:59:30'))
-    window.todoApi = createApi([makeTask({ dueDate: '2026-09-08' })])
+    window.todoApi = createApi([makeTask({ plan: { kind: 'day', start: '2026-09-08' } })])
     const wrapper = mount(App)
     await flushPromises()
     const todayButton = wrapper.findAll('.nav-item').find((button) => button.text().includes('今天'))!

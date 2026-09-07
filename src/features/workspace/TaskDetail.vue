@@ -2,6 +2,8 @@
 import { useWorkspaceContext } from './context'
 import SelectField from '../../components/SelectField.vue'
 import DraftStatus from '../../components/DraftStatus.vue'
+import PlanField from './PlanField.vue'
+import TaskSources from './TaskSources.vue'
 const { detailLoading, trapDialogFocus, search, pendingDelete, selectedTaskId, detailOpen, detailDraft, tagQuery, newSubtaskTitle, activeTask, subtasks, visibleDetailTags, canCreateDetailTag, closeDetail, discardTaskDraft, createTagFromDetail, saveDetail, addSubtask, sortedLists, toggleTask } = useWorkspaceContext()
 </script>
 
@@ -16,6 +18,7 @@ const { detailLoading, trapDialogFocus, search, pendingDelete, selectedTaskId, d
 <button class="icon-button" aria-label="关闭" @click="closeDetail">×</button>
 </header>
 <div class="drawer-body" :inert="detailLoading">
+<TaskSources :task-id="activeTask.id" />
 <DraftStatus v-if="selectedTaskId" kind="task" :draft-key="selectedTaskId" @discard="discardTaskDraft" />
 <div class="detail-hero">
 <input v-if="detailDraft" v-model="detailDraft.title" class="title-input" placeholder="任务标题" />
@@ -58,6 +61,8 @@ const { detailLoading, trapDialogFocus, search, pendingDelete, selectedTaskId, d
 <span>截止日期</span>
 <input v-model="detailDraft.dueDate" type="date" />
 </label>
+<div class="field"><span>执行计划</span><PlanField v-model="detailDraft.plan" @update:model-value="detailDraft.focusDate = null" /></div>
+<label v-if="detailDraft.plan?.kind === 'day'" class="field"><span>当日重点</span><input type="checkbox" :checked="detailDraft.focusDate === detailDraft.plan.start" @change="detailDraft.focusDate = ($event.target as HTMLInputElement).checked ? detailDraft.plan.start : null" /></label>
 <label class="field">
 <span>截止时间</span>
 <input v-model="detailDraft.dueTime" type="time" />

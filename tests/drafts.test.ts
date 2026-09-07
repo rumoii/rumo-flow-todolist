@@ -38,11 +38,11 @@ it('keeps invalid drafts and rejects stale writes and deleted targets', () => {
   expect(() => repository.drafts.put({ ...saved, kind: 'task', key: task.id, payload: taskToDraft(task) })).toThrow()
 })
 
-it('round trips v4 drafts, rejects old generations and validates import atomically', () => {
+it('round trips v5 drafts, rejects old generations and validates import atomically', () => {
   const snapshot = repository.drafts.get('capture', 'global')
   repository.drafts.put({ ...snapshot, kind: 'capture', key: 'global', payload: { title: '未完成捕获' } })
   const backup = repository.backup.exportBackup()
-  expect(backup.version).toBe(4)
+  expect(backup.version).toBe(5)
   repository.backup.importBackup(backup)
   expect(repository.drafts.get('capture', 'global').record?.payload).toEqual({ title: '未完成捕获' })
   expect(() => repository.drafts.put({ ...snapshot, kind: 'capture', key: 'global', payload: { title: '旧窗口' } })).toThrow()
@@ -50,15 +50,15 @@ it('round trips v4 drafts, rejects old generations and validates import atomical
   broken.drafts![0].version = 99 as never
   expect(() => repository.backup.importBackup(broken)).toThrow()
   expect(repository.drafts.get('capture', 'global').record?.payload).toEqual({ title: '未完成捕获' })
-  repository.backup.importBackup({ ...backup, version: 3, drafts: undefined })
-  expect(repository.drafts.get('capture', 'global').record).toBeNull()
+  expect(() => repository.backup.importBackup({ ...backup, version: 3, drafts: undefined } as never)).toThrow('仅支持 v5')
+  expect(repository.drafts.get('capture', 'global').record?.payload).toEqual({ title: '未完成捕获' })
 })
 
 it('rejects changed formal data and rolls back a failure during draft cleanup', () => {
   const task = repository.tasks.createTask({ title: '原始内容' })
   const snapshot = repository.drafts.get('task', task.id)
   const saved = repository.drafts.put({ ...snapshot, kind: 'task', key: task.id, payload: { ...taskToDraft(task), title: '新内容' } })
-  getDatabase().prepare("UPDATE tasks SET updated_at='changed' WHERE id=?").run(task.id)
+  getDatabase().prepare("UPDATE tasks SET updated_at='2026-01-01T00:00:00.000Z' WHERE id=?").run(task.id)
   expect(() => repository.drafts.commit({ ...saved, kind: 'task', key: task.id })).toThrow('已变化')
   getDatabase().exec("CREATE TRIGGER fail_draft_cleanup BEFORE UPDATE ON editor_drafts BEGIN SELECT RAISE(ABORT, 'disk failure'); END")
   expect(() => repository.drafts.commit({ ...saved, kind: 'task', key: task.id, acceptChanges: true })).toThrow('disk failure')
@@ -101,9 +101,10 @@ it('upgrades a version 7 fixture once and preserves its existing tasks', () => {
   const database = getDatabase()
   for (const trigger of ['drafts_task_deleted', 'drafts_task_removed', 'drafts_video_removed', 'drafts_list_removed', 'drafts_tag_removed']) database.exec(`DROP TRIGGER ${trigger}`)
   database.exec('DROP TABLE editor_drafts; DROP TABLE editor_draft_meta; DELETE FROM schema_migrations WHERE version=8;')
+  database.exec('DROP TRIGGER action_video_removed; DROP TRIGGER action_review_removed; DROP TABLE action_links; DROP INDEX idx_tasks_deletion_batch; ALTER TABLE tasks DROP COLUMN plan_json; ALTER TABLE tasks DROP COLUMN focus_date; ALTER TABLE tasks DROP COLUMN deletion_batch; DELETE FROM schema_migrations WHERE version=9;')
   closeDatabase()
   expect(repository.tasks.getTask(task.id).title).toBe('旧版任务')
-  expect(getDatabase().prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toEqual({ version: 8 })
+  expect(getDatabase().prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toEqual({ version: 9 })
   const generation = repository.drafts.get('capture', 'global').generation
   closeDatabase()
   expect(repository.drafts.get('capture', 'global').generation).toBe(generation)

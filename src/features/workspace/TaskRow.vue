@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Task, TaskPriority } from '../../shared/contracts'
+import { planLabel } from '../../shared/planning'
 import { useWorkspaceContext } from './context'
 defineProps<{
   task: Task
@@ -16,8 +17,8 @@ const { lists, tags, activeView, openTaskMenuId, todayIso, selectTask, taskReord
 <span v-if="task.priority !== 'none'" :class="['priority-badge', priorityClass(task.priority)]" :title="priorityLabel(task.priority)">♨ {{ priorityCode(task.priority) }}</span>
 </div>
 <div class="task-meta">
+<span>▦ {{ planLabel(task.plan) }}</span><span v-if="task.focusDate">★ 当日重点</span>
 <span v-if="task.dueDate" :class="{ overdue: task.status === 'active' && task.dueDate < todayIso }">◷ {{ dateLabel(task.dueDate) }}</span>
-<span v-else-if="activeView === 'today'" class="undated-meta">◷ 未安排日期</span>
 <span v-if="lists.find(list => list.id === task.listId)" class="list-meta">
 <i class="list-dot" :style="{ background: lists.find(list => list.id === task.listId)?.color || '#856AF9' }">
 </i>{{ lists.find(list => list.id === task.listId)?.name }}</span>

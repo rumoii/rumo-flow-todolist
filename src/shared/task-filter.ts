@@ -1,5 +1,6 @@
 import type { Task, TaskFilterCriteria } from './contracts'
 import { isoDate } from './date'
+import { isOverdue, shiftDay } from './planning'
 
 export function matchesTaskFilter(task: Task, criteria: TaskFilterCriteria, today: Date): boolean {
   const todayIso = isoDate(today)
@@ -8,8 +9,8 @@ export function matchesTaskFilter(task: Task, criteria: TaskFilterCriteria, toda
   if (criteria.priorities?.length && !criteria.priorities.includes(task.priority)) return false
   if (criteria.tagIds?.length && !task.tags.some(tag => criteria.tagIds!.includes(tag.id))) return false
   if (criteria.due === 'today' && task.dueDate !== todayIso) return false
-  if (criteria.due === 'overdue' && (!task.dueDate || task.dueDate >= todayIso)) return false
-  if (criteria.due === 'next7' && (!task.dueDate || task.dueDate <= todayIso || task.dueDate > isoDate(new Date(today.getTime() + 7 * 86400000)))) return false
+  if (criteria.due === 'overdue' && !isOverdue(task, today)) return false
+  if (criteria.due === 'next7' && (!task.dueDate || task.dueDate <= todayIso || task.dueDate > shiftDay(todayIso, 7))) return false
   if (criteria.due === 'none' && task.dueDate) return false
   if (criteria.search && !`${task.title} ${task.notes} ${task.tags.map(tag => tag.name).join(' ')}`.toLocaleLowerCase().includes(criteria.search.toLocaleLowerCase())) return false
   return true

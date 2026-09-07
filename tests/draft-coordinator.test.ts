@@ -12,7 +12,7 @@ function fixture() {
   const put = vi.fn(async (input: DraftWrite): Promise<DraftSnapshot> => {
     if (input.revision !== snapshot.revision) throw new Error('revision conflict')
     snapshot = { ...snapshot, revision: snapshot.revision + 1, record: { kind: input.kind, key: input.key, revision: snapshot.revision + 1,
-      version: 1, updatedAt: '', baseUpdatedAt: input.baseUpdatedAt, payload: input.payload } as DraftRecord }
+      version: 2, updatedAt: '', baseUpdatedAt: input.baseUpdatedAt, payload: input.payload } as DraftRecord }
     return structuredClone(snapshot)
   })
   const api = { drafts: {

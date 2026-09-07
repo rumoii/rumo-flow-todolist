@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
     const timestamp = now.toISOString()
     const lists = [{ id: 'list-work', name: '工作', color: '#856AF9', sortOrder: 0, isPinned: false, createdAt: timestamp, updatedAt: timestamp }]
     const tags: Array<{ id: string; name: string; color: string | null; createdAt: string; updatedAt: string }> = []
-    const tasks = [{ id: 'seed-task', title: '验收初始任务', listId: 'list-work', dueDate: today, dueTime: null, reminderMinutesBefore: null, priority: 'high', notes: '浏览器验收', status: 'active', sortOrder: 0, isPinned: false, parentTaskId: null, recurrenceRuleId: null, deletedAt: null, tags: [], createdAt: timestamp, updatedAt: timestamp, completedAt: null }]
+    const tasks = [{ plan: { kind: 'day', start: today }, focusDate: null, deletionBatch: null, id: 'seed-task', title: '验收初始任务', listId: 'list-work', dueDate: today, dueTime: null, reminderMinutesBefore: null, priority: 'high', notes: '浏览器验收', status: 'active', sortOrder: 0, isPinned: false, parentTaskId: null, recurrenceRuleId: null, deletedAt: null, tags: [], createdAt: timestamp, updatedAt: timestamp, completedAt: null }]
     const flowReview = { date: today, videoLimit: 3, didWell: '', didNotWell: '', reflection: '', inputType: 'none', inputVideoId: null, inputText: '', outputText: '', tomorrowExpectation: '', savedAt: null as string | null, createdAt: timestamp, updatedAt: timestamp }
     const flowVideos: Array<{ id: string; date: string; title: string; sourceUrl: string; sourcePlatform: string; author: string; thought: string; createdAt: string; updatedAt: string }> = []
     const appSettings = { theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
@@ -37,7 +37,7 @@ test.beforeEach(async ({ page }) => {
             const task = byId(id)
             if (task) Object.assign(task, { status: 'completed', completedAt: new Date().toISOString() })
           },
-          restore: async (id: string) => {
+          reopen: async (id: string) => {
             const task = byId(id)
             if (task) Object.assign(task, { status: 'active', completedAt: null })
           },
@@ -45,7 +45,7 @@ test.beforeEach(async ({ page }) => {
             const index = tasks.findIndex((task) => task.id === id)
             if (index >= 0) tasks.splice(index, 1)
           },
-          restoreRemoved: async () => undefined,
+          recover: async () => undefined,
           reorder: async (ids: string[]) => ids.forEach((id, index) => { const task = byId(id); if (task) task.sortOrder = index }),
           organize: async (id: string, input: { isPinned: boolean; priority: 'none' | 'low' | 'medium' | 'high'; orderedIds: string[] }) => { const task = byId(id); if (!task) throw new Error('missing task'); Object.assign(task, { isPinned: input.isPinned, priority: input.priority }); input.orderedIds.forEach((taskId, index) => { const item = byId(taskId); if (item) item.sortOrder = index }); return { ...task } },
         },
@@ -71,6 +71,8 @@ test.beforeEach(async ({ page }) => {
         },
         filters: { list: async () => [], create: async (input: Record<string, unknown>) => ({ id: crypto.randomUUID(), sortOrder: 0, createdAt: timestamp, updatedAt: timestamp, ...input }), update: async () => ({}), remove: async () => undefined },
         flow: {
+          actionLinks: async () => [],
+          taskFacts: async () => ({ completed: [], pending: [] }),
           getDay: async () => ({ review: { ...flowReview }, videos: flowVideos.map((video) => ({ ...video })) }),
           createVideo: async (input: { date: string; title?: string; sourceUrl: string; author?: string }) => { const video = { id: crypto.randomUUID(), date: input.date, title: input.title ?? '', sourceUrl: input.sourceUrl, sourcePlatform: '抖音', author: input.author ?? '', thought: '', createdAt: timestamp, updatedAt: timestamp }; flowVideos.push(video); return { ...video } },
           updateVideo: async (id: string, input: Record<string, unknown>) => { const video = flowVideos.find((item) => item.id === id)!; Object.assign(video, input, { updatedAt: new Date().toISOString() }); return { ...video } },
@@ -80,7 +82,7 @@ test.beforeEach(async ({ page }) => {
           summary: async () => ({ from: today, to: today, reviewedDays: flowReview.savedAt ? 1 : 0, videoCount: flowVideos.length, overLimitDays: flowVideos.length > 3 ? 1 : 0, pendingThoughts: flowVideos.filter((video) => !video.thought).length }),
         },
         settings: { get: async () => ({ ...appSettings }), update: async (input: Record<string, unknown>) => { Object.assign(appSettings, input); return { ...appSettings } }, onChanged: () => () => undefined },
-        desktop: { status: async () => ({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: true }), openQuickCapture: async () => undefined, openExternal: async () => undefined, onFocusQuickAdd: () => () => undefined, onOpenFlow: () => () => undefined },
+        desktop: { onDataChanged: () => () => undefined, status: async () => ({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: true }), openQuickCapture: async () => undefined, openExternal: async () => undefined, onFocusQuickAdd: () => () => undefined, onOpenFlow: () => () => undefined },
         lists: {
           list: async () => lists.map((list) => ({ ...list })),
           create: async (input: Record<string, unknown>) => {
@@ -128,6 +130,7 @@ test('creates, completes and edits a task without console or page errors', async
   await newTaskRow.locator('.task-main').click()
   await expect(page.getByText('任务详情')).toBeVisible()
   await expect(page.locator('.detail-card')).toHaveCount(5)
+  await page.getByLabel('截止日期', { exact: true }).fill(new Date().toLocaleDateString('sv-SE'))
   await page.getByRole('combobox', { name: '任务提醒' }).click()
   await page.getByRole('option', { name: '提前 1 小时' }).click()
   await page.locator('.title-input').fill('浏览器编辑任务')
@@ -139,6 +142,64 @@ test('creates, completes and edits a task without console or page errors', async
   await page.getByRole('button', { name: /已完成/ }).click()
   await expect(page.getByText('浏览器编辑任务')).toBeVisible()
   expect(errors).toEqual([])
+})
+
+test('separates business management from settings and manages labels without deleting tasks', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).not.toContainText('每日视频额度')
+  await expect(dialog).not.toContainText('每日复盘提醒')
+  await expect(dialog).not.toContainText('标签管理')
+  await page.getByRole('button', { name: '数据与备份', exact: true }).click()
+  await expect(page.getByRole('button', { name: '导出备份' })).toBeVisible()
+  await page.getByRole('button', { name: '快捷键', exact: true }).click()
+  await expect(page.getByRole('button', { name: '快捷键帮助' })).toBeVisible()
+  await page.getByRole('button', { name: '关闭设置' }).click()
+  await page.getByRole('button', { name: '标签管理', exact: true }).click()
+  await expect(page.getByPlaceholder('搜索任务')).toHaveCount(0)
+  await page.getByPlaceholder('新标签名称').fill('重点')
+  await page.getByRole('button', { name: '创建标签' }).click()
+  await page.getByLabel('标签名称 重点', { exact: true }).fill('重要事项')
+  await page.getByLabel('标签颜色 重点', { exact: true }).fill('#31a87c')
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(page.getByLabel('标签名称 重要事项', { exact: true })).toHaveValue('重要事项')
+  await page.getByRole('button', { name: '删除标签 重要事项', exact: true }).click()
+  await expect(page.getByRole('button', { name: '取消', exact: true })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByRole('button', { name: '删除标签 重要事项', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: '删除标签', exact: true }).click()
+  await expect(page.getByText('还没有标签', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /^今天/ }).click()
+  await expect(page.getByText('验收初始任务', { exact: true })).toBeVisible()
+})
+
+test('keeps settings navigation fixed and usable in the minimum window', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 600 })
+  await page.goto('/?titlebar=1')
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  const close = page.getByRole('button', { name: '关闭设置' })
+  await page.locator('.dialog-backdrop').evaluate(async element => { await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => undefined))) })
+  const before = await close.boundingBox()
+  for (const name of ['外观', '快捷键', '数据与备份', '外观']) {
+    await page.getByRole('button', { name, exact: true }).click()
+    await expect(close).toBeVisible()
+    expect((await close.boundingBox())!.y).toBeCloseTo(before!.y, 0)
+  }
+  await page.getByRole('button', { name: '深色', exact: true }).click()
+  await expect(page.locator('.app-titlebar')).toHaveCSS('background-color', 'rgb(33, 31, 40)')
+  const layout = await page.evaluate(() => {
+    const dialog = document.querySelector('.settings-dialog')!
+    const bounds = dialog.getBoundingClientRect()
+    return { width: document.body.scrollWidth, viewport: innerWidth, top: bounds.top, bottom: bounds.bottom, height: innerHeight, overflow: getComputedStyle(dialog).overflowY, mainTop: document.querySelector('.main-content')!.getBoundingClientRect().top, shellScroll: document.querySelector('.app-shell')!.scrollTop }
+  })
+  expect(layout.width).toBeLessThanOrEqual(layout.viewport)
+  expect(layout.top).toBeGreaterThanOrEqual(36)
+  expect(layout.bottom).toBeLessThanOrEqual(layout.height)
+  expect(layout.overflow).toBe('hidden')
+  expect(layout.mainTop).toBe(36)
+  expect(layout.shellScroll).toBe(0)
 })
 
 test('keeps the core layout usable at a narrow desktop window', async ({ page }) => {
@@ -172,8 +233,7 @@ test('switches the complete interface between light and dark themes', async ({ p
 
   const light = await page.evaluate(() => ({ body: getComputedStyle(document.body).backgroundColor, sidebar: getComputedStyle(document.querySelector('.sidebar')!).backgroundColor }))
   await page.getByRole('button', { name: '设置' }).click()
-  await page.getByRole('combobox', { name: '界面主题' }).click()
-  await page.getByRole('option', { name: '深色' }).click()
+  await page.getByRole('button', { name: '深色', exact: true }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
 
   const dark = await page.evaluate(() => ({
@@ -191,8 +251,7 @@ test('switches the complete interface between light and dark themes', async ({ p
   await page.getByRole('button', { name: /心流/ }).click()
   await expect(page.locator('.flow-card').first()).toHaveCSS('background-color', 'rgb(33, 31, 40)')
   await page.getByRole('button', { name: '设置' }).click()
-  await page.getByRole('combobox', { name: '界面主题' }).click()
-  await page.getByRole('option', { name: '浅色' }).click()
+  await page.getByRole('button', { name: '浅色', exact: true }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   expect(errors).toEqual([])
 })
@@ -232,6 +291,7 @@ test('keeps weekly task titles horizontal and removes the unused account placeho
 
 test('pins tasks, changes priority and exposes subtasks near the top of details', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: '总计划', exact: true }).click()
   const taskRow = page.locator('.task-row').filter({ hasText: '验收初始任务' })
   await taskRow.getByRole('button', { name: '任务操作' }).click()
   await page.getByRole('button', { name: '置顶任务' }).click()
@@ -265,6 +325,7 @@ test('pins and deletes a list through the three-dot menu while keeping tasks by 
 
 test('drags a task into the pin zone and reorders custom lists', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: '总计划', exact: true }).click()
   const taskRow = page.locator('.task-row').filter({ hasText: '验收初始任务' })
   await taskRow.dragTo(page.locator('.pinned-zone'))
   await expect(page.locator('.pinned-zone').getByText('验收初始任务')).toBeVisible()
@@ -302,8 +363,8 @@ test('uses unified motion tokens and honors reduced-motion preferences', async (
   expect(motion.base).toContain('300ms')
   expect(motion.smooth).toContain('cubic-bezier(.23,1,.32,1)')
 
-  await page.getByRole('button', { name: '即将到期' }).click()
-  await expect(page.getByRole('heading', { name: '即将到期' })).toBeVisible()
+  await page.getByRole('button', { name: '总计划' }).click()
+  await expect(page.getByRole('heading', { name: '总计划' })).toBeVisible()
 
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const reducedDuration = await page.locator('.primary-action').evaluate((element) => getComputedStyle(element).transitionDuration)
@@ -386,17 +447,16 @@ test('renders the branded quick capture panel without overflow', async ({ page }
   await expect(page.getByText('已加入收集箱')).toBeVisible()
 })
 
-test('keeps the today count and task list in sync for undated list tasks', async ({ page }) => {
+test('keeps unplanned custom-list tasks out of today', async ({ page }) => {
   await page.goto('/')
   await page.locator('.list-items .nav-item').filter({ hasText: '工作' }).click()
   await page.getByPlaceholder('添加一个任务，按 Enter 保存…').fill('清单无日期任务')
   await page.getByPlaceholder('添加一个任务，按 Enter 保存…').press('Enter')
 
   const todayButton = page.locator('.nav-group .nav-item').filter({ hasText: '今天' })
-  await expect(todayButton.locator('em')).toHaveText('2')
+  await expect(todayButton.locator('em')).toHaveText('1')
   await todayButton.click()
-  await expect(page.getByText('清单无日期任务')).toBeVisible()
-  await expect(page.getByText('未安排日期')).toBeVisible()
+  await expect(page.locator('.task-row').filter({ hasText: '清单无日期任务' })).toHaveCount(0)
 })
 
 test('creates tags from Quick Add and details, then filters without opening details', async ({ page }) => {
@@ -423,7 +483,7 @@ test('registers an intentional video and saves a daily flow review', async ({ pa
   await page.setViewportSize({ width: 1024, height: 720 })
   await page.goto('/')
   const primaryNavigation = await page.locator('.nav-group > .nav-item').allTextContents()
-  expect(primaryNavigation.map((label) => label.replace(/\d+/g, '').trim())).toEqual(['✦ 收集箱', '☀ 今天', '▦ 本周', '◷ 即将到期', '✓ 已完成'])
+  expect(primaryNavigation.map((label) => label.replace(/\d+/g, '').trim())).toEqual(['☷ 总计划', '✦ 收集箱', '☀ 今天', '▦ 本周', '▦ 本月', '◷ 已逾期', '⌕ 历史搜索', '♲ 回收站', '✓ 已完成'])
   await expect(page.locator('.nav-group + .flow-nav-section')).toBeVisible()
   await page.getByRole('button', { name: /心流/ }).click()
   await expect(page.getByRole('heading', { name: '心流' })).toBeVisible()

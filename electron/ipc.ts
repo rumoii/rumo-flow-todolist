@@ -16,10 +16,12 @@ export function registerIpcHandlers(repository: Repository, options: IpcOptions 
     const notify = (result: unknown) => {
       const domain = channel.split(':')[0]
       const operation = channel.split(':')[1]
-      if (!['get', 'list', 'status', 'get-day', 'month', 'summary', 'export', 'import'].includes(operation)) {
-        const domains: DataDomain[] = domain === 'tasks' ? ['tasks'] : ['lists', 'tags', 'filters'].includes(domain) ? ['organization', 'tasks'] : domain === 'flow' ? ['flow'] : domain === 'settings' ? ['settings'] : domain === 'drafts' && operation === 'commit' ? ['tasks', 'flow', 'organization'] : []
-        if (domains.length)
-          options.onDataChanged?.(domains)
+      if (!['get', 'list', 'status', 'get-day', 'month', 'summary', 'export', 'import', 'search', 'action-links', 'task-facts'].includes(operation)) {
+        const domains: DataDomain[] = domain === 'tasks' ? ['tasks'] : ['lists', 'tags', 'filters'].includes(domain) ? ['organization', 'tasks'] : domain === 'flow' ? (operation === 'create-action' ? ['tasks', 'flow'] : ['flow']) : domain === 'settings' ? ['settings'] : domain === 'drafts' && operation === 'commit' ? ['tasks', 'flow', 'organization'] : []
+        if (domains.length) {
+          try { options.onDataChanged?.(domains) }
+          catch (error) { console.error('数据已保存，但变更通知失败', error) }
+        }
       }
       return result
     }

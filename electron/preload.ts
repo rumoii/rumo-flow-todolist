@@ -25,13 +25,15 @@ const api: TodoApi = {
     },
   },
   tasks: {
+    batch: (ids, action) => ipcRenderer.invoke('tasks:batch', ids, action),
+    search: (text) => ipcRenderer.invoke('tasks:search', text),
     list: (query) => ipcRenderer.invoke('tasks:list', query),
     create: (input) => ipcRenderer.invoke('tasks:create', input),
     update: (id, input) => ipcRenderer.invoke('tasks:update', id, input),
     complete: (id) => ipcRenderer.invoke('tasks:complete', id),
-    restore: (id) => ipcRenderer.invoke('tasks:restore', id),
+    reopen: (id) => ipcRenderer.invoke('tasks:reopen', id),
     remove: (id) => ipcRenderer.invoke('tasks:remove', id),
-    restoreRemoved: (id) => ipcRenderer.invoke('tasks:restore-removed', id),
+    recover: (id) => ipcRenderer.invoke('tasks:recover', id),
     reorder: (ids) => ipcRenderer.invoke('tasks:reorder', ids),
     organize: (id, input) => ipcRenderer.invoke('tasks:organize', id, input)
   },
@@ -48,6 +50,9 @@ const api: TodoApi = {
     remove: (id) => ipcRenderer.invoke('filters:remove', id)
   },
   flow: {
+    createAction: (input) => ipcRenderer.invoke('flow:create-action', input),
+    actionLinks: (source, taskId) => ipcRenderer.invoke('flow:action-links', source, taskId),
+    taskFacts: (date) => ipcRenderer.invoke('flow:task-facts', date),
     getDay: (date) => ipcRenderer.invoke('flow:get-day', date),
     saveReview: (input) => ipcRenderer.invoke('flow:save-review', input),
     createVideo: (input) => ipcRenderer.invoke('flow:create-video', input),

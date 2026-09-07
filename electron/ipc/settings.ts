@@ -6,14 +6,16 @@ export function registerSettings({ repository, options, handle, changed }: IpcCo
     const current = repository.settings.getSettings()
     const next = repository.settings.validateSettings(object(input, '设置'))
     const rollback = options.onSettingsChanging?.(next, current)
+    let result
     try {
-      const result = repository.settings.updateSettings(next)
-      options.onSettingsChanged?.(result)
-      return result
+      result = repository.settings.updateSettings(next)
     }
     catch (error) {
       rollback?.()
       throw error
     }
+    try { options.onSettingsChanged?.(result) }
+    catch (error) { console.error('设置已保存，但桌面同步失败', error) }
+    return result
   })
 }

@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-test('preserves drafts across navigation, restart and v4 backup through real IPC and SQLite', async () => {
+test('preserves drafts across navigation, restart and v5 backup through real IPC and SQLite', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rumo-electron-'))
   let application: ElectronApplication | undefined
   async function launch() {
@@ -48,7 +48,7 @@ test('preserves drafts across navigation, restart and v4 backup through real IPC
     }, backupPath)
     await page.evaluate(() => window.todoApi.backup.export())
     const backup = JSON.parse(fs.readFileSync(backupPath, 'utf8'))
-    expect(backup.version).toBe(4)
+    expect(backup.version).toBe(5)
     expect(backup.drafts.some((draft: { payload: { didWell?: string } }) => draft.payload.didWell === '真实桌面未提交的复盘')).toBe(true)
     await page.evaluate(backup => window.todoApi.backup.import(backup), backup)
     await expect(page.getByPlaceholder('哪件事值得肯定？')).toHaveValue('真实桌面未提交的复盘')
@@ -75,7 +75,7 @@ test('restores task, video and capture inputs after abrupt exit without submitti
   try {
     let page = await launch()
     const date = new Date().toLocaleDateString('sv-SE')
-    const task = await page.evaluate(() => window.todoApi.tasks.create({ title: '已保存任务' }))
+    const task = await page.evaluate(date => window.todoApi.tasks.create({ title: '已保存任务', plan: { kind: 'day', start: date } }), date)
     await page.locator('.task-row .task-main').filter({ hasText: '已保存任务' }).click()
     await page.getByPlaceholder('记录一些想法…').fill('不能被后台刷新覆盖的备注')
     await expect(page.getByText('草稿已保留', { exact: true })).toBeVisible()

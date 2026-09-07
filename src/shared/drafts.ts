@@ -1,5 +1,7 @@
 import type { RecurrenceFrequency, Task, TaskPriority, UpdateTaskInput, SaveDailyReviewInput, UpdateVideoReflectionInput } from './contracts'
 export interface TaskEditorDraft {
+  plan: import('./planning').TaskPlan | null
+  focusDate: string | null
   title: string
   listId: string | null
   dueDate: string
@@ -26,7 +28,7 @@ export type DraftRecord = {
   [Kind in DraftKind]: {
     kind: Kind
     key: string
-    version: 1
+    version: 2
     revision: number
     baseUpdatedAt: string | null
     payload: DraftPayloads[Kind]
@@ -51,13 +53,13 @@ export type DraftWrite = DraftRef & {
 }
 export type DataDomain = 'tasks' | 'organization' | 'flow' | 'settings' | 'all'
 export function taskToDraft(task: Task): TaskEditorDraft {
-  return { title: task.title, listId: task.listId, dueDate: task.dueDate ?? '', dueTime: task.dueTime ?? '',
+  return { plan: task.plan, focusDate: task.focusDate, title: task.title, listId: task.listId, dueDate: task.dueDate ?? '', dueTime: task.dueTime ?? '',
     reminderMinutesBefore: task.reminderMinutesBefore, tagIds: task.tags.map(tag => tag.id), priority: task.priority,
     notes: task.notes, recurrence: task.recurrence?.frequency ?? 'none', recurrenceEnd: task.recurrence?.endDate ?? '',
     recurrenceInterval: task.recurrence?.interval ?? 1, recurrenceWeekdays: task.recurrence?.weekdays ?? [] }
 }
 export function draftToTask(draft: TaskEditorDraft): UpdateTaskInput {
-  return { title: draft.title.trim(), listId: draft.listId, dueDate: draft.dueDate || null, dueTime: draft.dueTime || null,
+  return { plan: draft.plan, focusDate: draft.focusDate, title: draft.title.trim(), listId: draft.listId, dueDate: draft.dueDate || null, dueTime: draft.dueTime || null,
     reminderMinutesBefore: draft.reminderMinutesBefore, tagIds: draft.tagIds, priority: draft.priority, notes: draft.notes,
     recurrence: draft.recurrence === 'none' ? null : { frequency: draft.recurrence, interval: draft.recurrenceInterval ?? 1,
       weekdays: draft.recurrenceWeekdays ?? [], endDate: draft.recurrenceEnd || null } }

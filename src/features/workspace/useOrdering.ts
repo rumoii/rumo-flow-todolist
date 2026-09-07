@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { planFor } from '../../shared/planning'
 import type { Ref, ComputedRef } from 'vue'
 import type { Task, TaskList, TaskPriority } from '../../shared/contracts'
 import type { TaskEditorDraft } from '../../shared/drafts'
@@ -163,9 +164,9 @@ export function useOrdering({ hasApi, tasks, selectedTaskId, detailDraft, notify
       endListDrag()
     }
   }
-  async function onWeekDrop(event: DragEvent, targetDate: string) { event.preventDefault(); const task = tasks.value.find(item => item.id === draggedTaskId.value); endTaskDrag(); if (!task || task.dueDate === targetDate)
+  async function onWeekDrop(event: DragEvent, targetDate: string) { event.preventDefault(); const task = tasks.value.find(item => item.id === draggedTaskId.value); endTaskDrag(); if (!task || (task.plan?.kind === 'day' && task.plan.start === targetDate))
     return; try {
-    const updated = hasApi() ? await window.todoApi.tasks.update(task.id, { dueDate: targetDate }) : { ...task, dueDate: targetDate }
+    const updated = hasApi() ? await window.todoApi.tasks.update(task.id, { plan: planFor('day', targetDate), focusDate: null }) : { ...task, plan: planFor('day', targetDate), focusDate: null }
     Object.assign(task, updated)
     notify(`已移动到${dateLabel(targetDate)}`)
   }

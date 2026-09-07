@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useWorkspaceContext } from './context'
 import SelectField from '../../components/SelectField.vue'
-const { settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon } = useWorkspaceContext()
+const { completedTodayCount, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon } = useWorkspaceContext()
 </script>
 
 <template>
@@ -18,6 +18,7 @@ const { settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen,
 <span aria-hidden="true">＋</span> 新建任务 <kbd>Ctrl N</kbd>
 </button>
       <nav class="nav-group">
+        <button :class="['nav-item', { active: activeView === 'all' }]" @click="activeView = 'all'"><span class="nav-icon" aria-hidden="true">☷</span> 总计划</button>
         <button :class="['nav-item', { active: activeView === 'inbox' }]" @click="activeView = 'inbox'">
 <span class="nav-icon" aria-hidden="true">✦</span> 收集箱 <em>{{ tasks.filter(task => task.status === 'active' && task.listId === null).length }}</em>
 </button>
@@ -26,8 +27,10 @@ const { settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen,
 </button>
         <button :class="['nav-item', { active: activeView === 'week' }]" @click="activeView = 'week'">
 <span class="nav-icon" aria-hidden="true">▦</span> 本周</button>
-        <button :class="['nav-item', { active: activeView === 'upcoming' }]" @click="activeView = 'upcoming'">
-<span class="nav-icon" aria-hidden="true">◷</span> 即将到期</button>
+        <button :class="['nav-item', { active: activeView === 'month' }]" @click="activeView = 'month'"><span class="nav-icon" aria-hidden="true">▦</span> 本月</button>
+        <button :class="['nav-item', { active: activeView === 'overdue' }]" @click="activeView = 'overdue'"><span class="nav-icon" aria-hidden="true">◷</span> 已逾期</button>
+        <button :class="['nav-item', { active: activeView === 'history' }]" @click="activeView = 'history'"><span class="nav-icon" aria-hidden="true">⌕</span> 历史搜索</button>
+        <button :class="['nav-item', { active: activeView === 'trash' }]" @click="activeView = 'trash'"><span class="nav-icon" aria-hidden="true">♲</span> 回收站</button>
         <button :class="['nav-item', { active: activeView === 'completed' }]" @click="activeView = 'completed'">
 <span class="nav-icon" aria-hidden="true">✓</span> 已完成 <em>{{ completedCount }}</em>
 </button>
@@ -36,6 +39,7 @@ const { settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen,
 <button :class="['nav-item', { active: activeView === 'flow' }]" @click="activeView = 'flow'">
 <span class="nav-icon" aria-hidden="true">◌</span> 心流 <em>记录与复盘</em>
 </button>
+<button :class="['nav-item', { active: activeView === 'tags' }]" @click="activeView = 'tags'"><span class="nav-icon" aria-hidden="true">#</span> 标签管理</button>
 </nav>
       <div class="sidebar-section saved-filter-section">
         <div class="section-title">保存的筛选 <button class="icon-button" aria-label="新建筛选" @click.stop="filterComposerOpen = !filterComposerOpen">＋</button>
@@ -127,10 +131,10 @@ const { settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen,
 <div class="mini-progress">
 <div>
 <span>今日进度</span>
-<strong>{{ pendingCount ? Math.round(completedCount / (completedCount + pendingCount) * 100) : 100 }}%</strong>
+<strong>{{ completedTodayCount + tasks.filter(isTodayTask).length ? Math.round(completedTodayCount / (completedTodayCount + tasks.filter(isTodayTask).length) * 100) : 0 }}%</strong>
 </div>
 <div class="progress-track">
-<span :style="{ width: `${pendingCount ? completedCount / (completedCount + pendingCount) * 100 : 100}%` }">
+<span :style="{ width: `${completedTodayCount + tasks.filter(isTodayTask).length ? completedTodayCount / (completedTodayCount + tasks.filter(isTodayTask).length) * 100 : 0}%` }">
 </span>
 </div>
 </div>

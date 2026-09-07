@@ -6,7 +6,7 @@ A focused, offline-first desktop todo list. Rumo-Flow is built with Vue 3, TypeS
 
 ## Features
 
-- Inbox, today, upcoming, this week, completed, and custom list views
+- All plans, today, this week, this month, overdue, inbox, completed, and custom list views
 - Quick entry, search, drag-and-drop ordering, and grouping by list, priority, or tag
 - Quick Add Magic using tokens such as `#tag`, `!p1`, `@tomorrow`, and `~list-name`
 - Due dates and times, reminders, none/low/medium/high priority, tags, and notes
@@ -54,13 +54,21 @@ Windows installers are published as GitHub Releases rather than committed to the
 
 ## Data and backups
 
-Application data is stored in Electron's user-data directory in a database named `rumo-daiban.sqlite`. Use “Settings & Data” inside the app to export a JSON backup; avoid copying a live SQLite file while the app is running. Before a restore, Rumo-Flow writes a snapshot to `backups/pre-import-*.json` so the previous state is retained.
+Unreleased source changes move tag management to its own sidebar page, video quotas to Flow input records, and reminder controls to daily reviews. Settings now groups appearance, shortcuts, and backups; the Windows title bar follows the selected theme. These changes are not included in the published RC installer. See the [verification record](docs/EVIDENCE-preferences.md).
 
-The current source exports `rumo-flow-backup` v4, including saved data and unfinished drafts. Restore accepts v1 through v4 and historical `rumo-daiban-backup` v1 files. Restoring replaces both data and drafts; an older backup without drafts restores an empty draft set. Pre-import snapshots include drafts. Older applications cannot import v4 backups.
+Application data is stored in Electron's user-data directory in a database named `rumo-daiban.sqlite`. Use “Settings → Data & Backups” inside the app to export a JSON backup; avoid copying a live SQLite file while the app is running. Before a restore, Rumo-Flow writes a snapshot to `backups/pre-import-*.json` so the previous state is retained.
+
+The current source imports and exports only `rumo-flow-backup` v5, including saved data, execution plans, trash, action provenance and unfinished drafts. Versions 1–4 are rejected without replacing existing data. A v5 snapshot is saved before each import.
 
 Task details, daily reviews, video edits and quick capture preserve drafts after roughly 500 ms without input. Only “draft preserved” confirms persistence. Explicit Save still commits formal data; drafts do not count as completed reviews. Navigation, window closing and normal exit wait for pending writes. Forced termination or power loss may lose input that has not reached disk.
 
-Migration 8 adds draft storage and reference cleanup without changing existing task identifiers. Before upgrading, export a backup using the old version and close it normally. For rollback, use that older backup rather than importing v4 into an older application. Workspace changes do not update an existing Release automatically.
+Migration 9 creates a consistent SQLite snapshot in `backups/pre-planning-*.sqlite` before upgrading an existing database. Existing task identifiers, deadlines and drafts remain; tasks start unplanned and task drafts become v2. Rollback requires closing all application processes and restoring the pre-upgrade snapshot. Do not open the upgraded database or import v5 with an older application. Workspace changes do not update an existing Release automatically.
+
+### Planning and linked actions
+
+Execution plans use a single day, Monday-based week or calendar month independently of deadlines. Unfinished plans do not roll forward automatically. Quick Add date tokens remain deadlines; global capture creates unplanned tasks. Today separates focus tasks, other day plans, due-today notices and unfinished earlier plans.
+
+Daily review starts with three questions and expands to six using the same draft. Saved reviews and videos can create multiple linked tasks; review actions default to tomorrow and video actions start unplanned. Search includes saved tasks, videos and reviews, excluding drafts and trash. Batch operations are atomic. Trash retains tasks for 30 days and restores only children removed with the selected parent.
 
 Desktop tests create temporary user-data directories and exercise real Electron IPC and SQLite. Browser tests use in-memory API fixtures. Installer installation/uninstallation, operating-system notification clicks and upgrades of personal data require separate acceptance.
 

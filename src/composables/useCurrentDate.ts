@@ -8,7 +8,7 @@ export function useCurrentDate() {
   const weekEnd = computed(() => { const date = new Date(weekStart.value); date.setDate(date.getDate() + 6); return date })
   let timer: number | undefined
 
-  function refresh() { const now = new Date(); if (isoDate(now) !== todayIso.value) currentDate.value = now }
+  function refresh() { currentDate.value = new Date() }
   function handleVisibilityChange() { if (document.visibilityState === 'visible') refresh() }
 
   onMounted(() => { timer = window.setInterval(refresh, 60000); document.addEventListener('visibilitychange', handleVisibilityChange) })

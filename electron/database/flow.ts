@@ -36,7 +36,7 @@ export class FlowRepository {
     }
     if (inputType === 'video' && !inputVideoId)
       throw new Error('请选择当天的视频')
-    const savedAt = timestamp()
+    const savedAt = new Date(Math.max(Date.now(), Date.parse(review.updatedAt) + 1)).toISOString()
     getDatabase().prepare('UPDATE flow_days SET did_well=?,did_not_well=?,reflection=?,input_type=?,input_video_id=?,input_text=?,output_text=?,tomorrow_expectation=?,saved_at=?,updated_at=? WHERE entry_date=?').run(input.didWell ?? '', input.didNotWell ?? '', input.reflection ?? '', inputType, inputVideoId, input.inputText ?? '', input.outputText ?? '', input.tomorrowExpectation ?? '', savedAt, savedAt, review.date)
     return this.mapFlowDay(getDatabase().prepare('SELECT * FROM flow_days WHERE entry_date=?').get(review.date))
   }
@@ -57,7 +57,7 @@ export class FlowRepository {
       throw new Error('视频记录不存在')
     const title = input.title === undefined ? current.title : input.title.trim()
     const sourceUrl = input.sourceUrl === undefined ? current.source_url : normalizeHttpUrl(input.sourceUrl)
-    db.prepare('UPDATE flow_videos SET title=?,source_url=?,author=?,thought=?,updated_at=? WHERE id=?').run(title, sourceUrl, input.author === undefined ? current.author : input.author.trim(), input.thought === undefined ? current.thought : input.thought, timestamp(), id)
+    db.prepare('UPDATE flow_videos SET title=?,source_url=?,author=?,thought=?,updated_at=? WHERE id=?').run(title, sourceUrl, input.author === undefined ? current.author : input.author.trim(), input.thought === undefined ? current.thought : input.thought, new Date(Math.max(Date.now(), Date.parse(current.updated_at) + 1)).toISOString(), id)
     return this.mapFlowVideo(db.prepare('SELECT * FROM flow_videos WHERE id=?').get(id))
   }
   removeFlowVideo(id: string): void { if (getDatabase().prepare('DELETE FROM flow_videos WHERE id=?').run(id).changes !== 1)

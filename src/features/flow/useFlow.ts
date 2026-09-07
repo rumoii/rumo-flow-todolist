@@ -185,7 +185,7 @@ export function useFlow(props: {
   catch {
     setNotice('草稿保留失败，请重试')
     return
-  } ; stashDrafts(); selectedDate.value = date; await loadDay(); }
+  } ; stashDrafts(); selectedDate.value = date; monthCursor.value = date.slice(0, 7); await Promise.all([loadDay(), loadOverview()]); }
   async function changeMonth(offset: number) { const [year, month] = monthCursor.value.split('-').map(Number); const next = new Date(year, month - 1 + offset, 1); monthCursor.value = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`; await loadOverview(); }
   function daySummary(date: string) { return monthDays.value.find((item) => item.date === date); }
   function setActiveTab(tab: FlowTab) { activeTab.value = tab; }

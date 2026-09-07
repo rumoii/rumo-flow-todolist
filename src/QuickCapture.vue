@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import DraftStatus from './components/DraftStatus.vue'
+import QuickAddHints from './components/QuickAddHints.vue'
 import { createDraftCoordinator, draftCoordinatorKey } from './composables/draft-coordinator'
 import { parseQuickAdd } from './shared/quick-add'
 import { ensureTags } from './shared/tag-utils'
@@ -118,6 +119,7 @@ onBeforeUnmount(() => { window.clearTimeout(closeTimer); removeSettingsListener?
         <span class="capture-badge">RUMO-FLOW</span>
       </header>
 
+      <QuickAddHints v-model="title" :tags="tags" :lists="lists" />
       <div class="capture-input-wrap" :class="{ 'has-message': message }">
         <span class="capture-input-icon" aria-hidden="true">＋</span>
         <input ref="input" v-model="title" :disabled="submitting || loadingCapture" aria-label="快速捕获任务" placeholder="写下任务…" @keydown.enter.prevent="submit">

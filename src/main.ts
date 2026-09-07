@@ -3,6 +3,8 @@ import App from './App.vue'
 import QuickCapture from './QuickCapture.vue'
 import './styles.css'
 import './motion.css'
+import './preferences.css'
+import './planning.css'
 import { createDraftCoordinator, draftCoordinatorKey } from './composables/draft-coordinator'
 
 const isQuickCapture = new URLSearchParams(location.search).get('capture') === '1'

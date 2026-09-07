@@ -47,7 +47,7 @@ describe('settings IPC ordering', () => {
 
   it('applies imported shortcut settings before replacing persisted data', async () => {
     const events: string[] = []
-    const payload = { format: 'rumo-flow-backup', version: 3, exportedAt: '', taskLists: [], tasks: [], recurrenceRules: [], flowDays: [], videoReflections: [], settings: next } as const
+    const payload = { format: 'rumo-flow-backup', version: 5, exportedAt: '', taskLists: [], tasks: [], recurrenceRules: [], tags: [], taskTags: [], savedFilters: [], actionLinks: [], drafts: [], flowDays: [], videoReflections: [], settings: next } as const
     const repository = {
       getSettings: vi.fn(() => current),
       validateSettings: vi.fn(() => next),
@@ -61,4 +61,31 @@ describe('settings IPC ordering', () => {
     expect(events).toEqual(['shortcut', 'import'])
     expect(repository.importBackup).toHaveBeenCalledWith(expect.objectContaining({ settings: next }))
   })
+
+  it('returns committed settings when downstream notifications fail', () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const rollback = vi.fn()
+    const repository = { getSettings: () => current, validateSettings: () => next, updateSettings: vi.fn(() => next) }
+    registerIpcHandlers({ settings: repository } as never, {
+      onSettingsChanging: () => rollback,
+      onSettingsChanged: () => { throw new Error('window destroyed') },
+      onDataChanged: () => { throw new Error('notification failed') },
+    })
+    expect(electronState.handlers.get('settings:update')!({}, next)).toEqual(next)
+    expect(rollback).not.toHaveBeenCalled()
+    expect(errorLog).toHaveBeenCalledTimes(2)
+    errorLog.mockRestore()
+  })
+})
+it('broadcasts action creation to both domains but never broadcasts search or link reads', () => {
+  electronState.handlers.clear()
+  const onDataChanged = vi.fn()
+  const repository = { actions: { create: vi.fn(() => ({ id: 'task' })), search: vi.fn(() => []), related: vi.fn(() => []), facts: vi.fn(() => ({ completed: [], pending: [] })) } }
+  registerIpcHandlers(repository as never, { onDataChanged })
+  electronState.handlers.get('tasks:search')!({}, '关键词')
+  electronState.handlers.get('flow:action-links')!({}, { kind: 'review', key: '2026-09-07' })
+  electronState.handlers.get('flow:task-facts')!({}, '2026-09-07')
+  expect(onDataChanged).not.toHaveBeenCalled()
+  electronState.handlers.get('flow:create-action')!({}, { requestId: 'request' })
+  expect(onDataChanged).toHaveBeenCalledExactlyOnceWith(['tasks', 'flow'])
 })

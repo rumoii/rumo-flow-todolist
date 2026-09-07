@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 import { flushPromises, mount } from '@vue/test-utils'
+import { ref } from 'vue'
+import { draftCoordinatorKey, createDraftCoordinator } from '../src/composables/draft-coordinator'
+import { navigationKey } from '../src/features/workspace/navigation'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import FlowView from '../src/components/FlowView.vue'
 import type { DailyReview, FlowDay, TodoApi, VideoReflection } from '../src/shared/contracts'
@@ -11,6 +14,8 @@ function createFlowApi(seed: VideoReflection[] = []) {
   const day: FlowDay = { review: review(), videos: [...seed] }
   const api = {
     flow: {
+      actionLinks: vi.fn(async () => []),
+      taskFacts: vi.fn(async () => ({ completed: [], pending: [] })),
       getDay: vi.fn(async () => structuredClone(day)),
       createVideo: vi.fn(async (input) => {
         const video: VideoReflection = { id: `video-${day.videos.length + 1}`, date: input.date, title: input.title ?? '', sourceUrl: input.sourceUrl, sourcePlatform: '抖音', author: input.author ?? '', thought: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
@@ -22,7 +27,8 @@ function createFlowApi(seed: VideoReflection[] = []) {
       month: vi.fn(async () => []),
       summary: vi.fn(async () => ({ from: date(), to: date(), reviewedDays: 0, videoCount: day.videos.length, overLimitDays: 0, pendingThoughts: day.videos.filter((video) => !video.thought).length })),
     },
-    desktop: { openExternal: vi.fn(async () => undefined) },
+    tasks: { list: vi.fn(async () => []) },
+    desktop: { onDataChanged: vi.fn(() => () => undefined), openExternal: vi.fn(async () => undefined) },
   } as unknown as TodoApi
   return { api, day }
 }
@@ -33,7 +39,7 @@ describe('FlowView', () => {
   it('stashes a link before opening it and saves details after watching', async () => {
     const { api } = createFlowApi()
     Object.defineProperty(window, 'todoApi', { configurable: true, value: api })
-    const wrapper = mount(FlowView, { props: { todayCompletedCount: 2, todayPendingCount: 1 } })
+    const wrapper = mount(FlowView, { global: { provide: { [draftCoordinatorKey as symbol]: createDraftCoordinator(api), [navigationKey as symbol]: { flowTarget: ref(null), openTask: vi.fn(), openFlow: vi.fn() } } }, props: { todayCompletedCount: 2, todayPendingCount: 1 } })
     await flushPromises()
 
     await wrapper.find('.video-composer input').setValue('https://www.douyin.com/video/1')
@@ -57,7 +63,7 @@ describe('FlowView', () => {
     const videos = Array.from({ length: 3 }, (_, index): VideoReflection => ({ id: `video-${index}`, date: date(), title: `视频 ${index}`, sourceUrl: `https://example.com/${index}`, sourcePlatform: 'example.com', author: '', thought: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }))
     const { api } = createFlowApi(videos)
     Object.defineProperty(window, 'todoApi', { configurable: true, value: api })
-    const wrapper = mount(FlowView, { props: { todayCompletedCount: 0, todayPendingCount: 0 } })
+    const wrapper = mount(FlowView, { global: { provide: { [draftCoordinatorKey as symbol]: createDraftCoordinator(api), [navigationKey as symbol]: { flowTarget: ref(null), openTask: vi.fn(), openFlow: vi.fn() } } }, props: { todayCompletedCount: 0, todayPendingCount: 0 } })
     await flushPromises()
 
     await wrapper.find('.video-composer input').setValue('https://example.com/4')
@@ -80,7 +86,7 @@ describe('FlowView', () => {
     const { api } = createFlowApi()
     api.desktop.openExternal = vi.fn(async () => { throw new Error('browser unavailable') })
     Object.defineProperty(window, 'todoApi', { configurable: true, value: api })
-    const wrapper = mount(FlowView, { props: { todayCompletedCount: 0, todayPendingCount: 0 } })
+    const wrapper = mount(FlowView, { global: { provide: { [draftCoordinatorKey as symbol]: createDraftCoordinator(api), [navigationKey as symbol]: { flowTarget: ref(null), openTask: vi.fn(), openFlow: vi.fn() } } }, props: { todayCompletedCount: 0, todayPendingCount: 0 } })
     await flushPromises()
 
     await wrapper.find('.video-composer input').setValue('https://example.com/video')
@@ -96,7 +102,7 @@ describe('FlowView', () => {
   it('switches tabs with the keyboard and keeps an unfinished review draft', async () => {
     const { api } = createFlowApi()
     Object.defineProperty(window, 'todoApi', { configurable: true, value: api })
-    const wrapper = mount(FlowView, { props: { todayCompletedCount: 0, todayPendingCount: 0 }, attachTo: document.body })
+    const wrapper = mount(FlowView, { global: { provide: { [draftCoordinatorKey as symbol]: createDraftCoordinator(api), [navigationKey as symbol]: { flowTarget: ref(null), openTask: vi.fn(), openFlow: vi.fn() } } }, props: { todayCompletedCount: 0, todayPendingCount: 0 }, attachTo: document.body })
     await flushPromises()
 
     const inputTab = wrapper.find('#flow-tab-input')

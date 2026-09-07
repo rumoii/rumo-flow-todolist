@@ -9,6 +9,7 @@ import { Repository } from './database/repository'
 import { DesktopController } from './desktop'
 import { ReminderScheduler } from './reminders'
 import { loadWindowState, trackWindowState } from './window-state'
+import { titleBarAppearance } from './window-appearance'
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 const userDataOverride = app.commandLine.getSwitchValue('user-data-dir')
 if (userDataOverride) {
@@ -27,12 +28,14 @@ let desktop: DesktopController | undefined
 let reminderScheduler: ReminderScheduler | undefined
 function createWindow(): BrowserWindow {
   const state = loadWindowState()
+  const theme = new Repository().settings.getSettings().theme
   const window = new BrowserWindow({
     ...state.bounds,
     minWidth: 900,
     minHeight: 600,
     show: false,
-    backgroundColor: '#F8F8F8',
+    backgroundColor: theme === 'dark' ? '#17161c' : '#F8F8F8',
+    ...(process.platform === 'win32' ? { titleBarStyle: 'hidden' as const, titleBarOverlay: titleBarAppearance(theme) } : {}),
     title: 'Rumo-Flow',
     icon: windowIconPath,
     webPreferences: {
@@ -50,10 +53,14 @@ function createWindow(): BrowserWindow {
     window.maximize(); window.show(); })
   trackWindowState(window)
   desktop?.attachCloseBehavior(window)
-  if (process.env.ELECTRON_RENDERER_URL)
-    void window.loadURL(process.env.ELECTRON_RENDERER_URL)
+  const query = { theme, titlebar: process.platform === 'win32' ? '1' : '0' }
+  if (process.env.ELECTRON_RENDERER_URL) {
+    const url = new URL(process.env.ELECTRON_RENDERER_URL)
+    Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value))
+    void window.loadURL(url.toString())
+  }
   else
-    void window.loadFile(path.join(currentDirectory, '../renderer/index.html'))
+    void window.loadFile(path.join(currentDirectory, '../renderer/index.html'), { query })
   window.on('closed', () => { if (mainWindow === window)
     mainWindow = undefined; })
   mainWindow = window
@@ -81,11 +88,12 @@ if (primaryInstance)
     })
     desktop.start(repository.settings.getSettings().globalShortcut)
     reminderScheduler = new ReminderScheduler(repository, (taskId) => desktop?.showMain(taskId), () => desktop?.showFlow())
-    registerIpcHandlers(repository, { barrier, confirmImport: async () => (await dialog.showMessageBox({ type: 'warning', message: '恢复备份会替换全部正式数据和草稿', detail: '恢复前会自动保留当前快照。旧版备份没有草稿，恢复后草稿为空。', buttons: ['取消', '恢复备份'], defaultId: 0, cancelId: 0 })).response === 1, onDataChanged: domains => { for (const window of BrowserWindow.getAllWindows())
+    let appliedSettings = repository.settings.getSettings()
+    registerIpcHandlers(repository, { barrier, confirmImport: async () => (await dialog.showMessageBox({ type: 'warning', message: '恢复备份会替换全部正式数据和草稿', detail: '恢复前会自动保留当前快照。仅支持 v5 备份，计划、行动来源、回收站和草稿将一起恢复。', buttons: ['取消', '恢复备份'], defaultId: 0, cancelId: 0 })).response === 1, onDataChanged: domains => { for (const window of BrowserWindow.getAllWindows())
         if (!window.isDestroyed())
           window.webContents.send('desktop:data-changed', domains); }, onTasksChanged: () => reminderScheduler?.reschedule(), onScheduleChanged: () => reminderScheduler?.reschedule(), openQuickCapture: () => desktop?.showCapture(), desktopStatus: () => ({ globalShortcut: desktop?.shortcut ?? repository.settings.getSettings().globalShortcut, globalShortcutRegistered: desktop?.shortcutRegistered ?? false }), onSettingsChanging: (next, current) => { if (next.globalShortcut === current.globalShortcut)
         return; if (!desktop?.registerShortcut(next.globalShortcut))
-        throw new Error('全局快捷键注册失败'); return () => { desktop?.registerShortcut(current.globalShortcut); }; }, onSettingsChanged: (settings) => { desktop?.notifySettingsChanged(settings); reminderScheduler?.reschedule(); } })
+        throw new Error('全局快捷键注册失败'); return () => { desktop?.registerShortcut(current.globalShortcut); }; }, onSettingsChanged: (settings) => { desktop?.notifySettingsChanged(settings); if (settings.reviewReminderEnabled !== appliedSettings.reviewReminderEnabled || settings.reviewReminderTime !== appliedSettings.reviewReminderTime) reminderScheduler?.reschedule(); appliedSettings = settings; } })
     reminderScheduler.start()
     createWindow()
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0)

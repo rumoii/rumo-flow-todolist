@@ -1,4 +1,12 @@
 import type { DraftKind, DraftSnapshot, DraftWrite, DraftRef, DraftRecord, DataDomain } from './drafts'
+import type { TaskPlan } from './planning'
+export type { TaskPlan, PlanKind } from './planning'
+export type TaskBatchAction = { kind: 'plan'; plan: TaskPlan | null } | { kind: 'deadline'; date: string | null } | { kind: 'move'; listId: string | null } | { kind: 'tags'; tagIds: string[] } | { kind: 'complete' | 'remove' | 'recover' | 'purge' }
+export interface ActionSource { kind: 'review' | 'video'; key: string }
+export interface ActionLink { requestId: string; taskId: string | null; sourceKind: 'review' | 'video'; sourceKey: string; sourceLabel: string; sourceDate: string; createdAt: string; sourceDeleted: boolean }
+export interface ActionLinkView extends ActionLink { task: Pick<Task, 'id' | 'title' | 'status' | 'deletedAt'> | null }
+export interface CreateActionInput { requestId: string; source: ActionSource; sourceUpdatedAt: string; task: CreateTaskInput }
+export interface SearchHit { kind: 'task' | 'video' | 'review'; key: string; date: string | null; title: string; excerpt: string }
 export type { DraftKind, DraftSnapshot, DraftWrite, DraftRef, DraftRecord, DataDomain } from './drafts'
 export type TaskPriority = 'none' | 'low' | 'medium' | 'high'
 export type TaskStatus = 'active' | 'completed'
@@ -38,6 +46,9 @@ export interface RecurrenceRule {
 }
 
 export interface Task {
+  plan: TaskPlan | null
+  focusDate: string | null
+  deletionBatch: string | null
   id: string
   title: string
   listId: string | null
@@ -61,6 +72,8 @@ export interface Task {
 }
 
 export interface CreateTaskInput {
+  plan?: TaskPlan | null
+  focusDate?: string | null
   title: string
   listId?: string | null
   dueDate?: string | null
@@ -203,19 +216,20 @@ export interface DesktopStatus {
 }
 
 export interface BackupPayload {
-  format: 'rumo-flow-backup' | 'rumo-daiban-backup'
-  version: 1 | 2 | 3 | 4
+  format: 'rumo-flow-backup'
+  version: 5
   exportedAt: string
   taskLists: TaskList[]
   tasks: Task[]
   recurrenceRules: RecurrenceRule[]
-  tags?: Tag[]
-  taskTags?: Array<{ taskId: string; tagId: string }>
-  savedFilters?: SavedFilter[]
-  flowDays?: DailyReview[]
-  videoReflections?: VideoReflection[]
+  tags: Tag[]
+  taskTags: Array<{ taskId: string; tagId: string }>
+  savedFilters: SavedFilter[]
+  flowDays: DailyReview[]
+  videoReflections: VideoReflection[]
+  actionLinks: ActionLink[]
   settings: Record<string, unknown>
-  drafts?: DraftRecord[]
+  drafts: DraftRecord[]
 }
 
 export interface ImportResult { importedTasks: number; importedLists: number; importedRules: number; importedReviews: number; importedVideos: number }
@@ -232,13 +246,15 @@ export interface TodoApi {
     onResume(callback: (replaced: boolean) => void): () => void
   }
   tasks: {
+    batch(ids: string[], action: TaskBatchAction): Promise<void>
+    search(text: string): Promise<SearchHit[]>
     list(query?: TaskQuery): Promise<Task[]>
     create(input: CreateTaskInput): Promise<Task>
     update(id: string, input: UpdateTaskInput): Promise<Task>
     complete(id: string): Promise<void>
-    restore(id: string): Promise<void>
+    reopen(id: string): Promise<void>
     remove(id: string): Promise<void>
-    restoreRemoved(id: string): Promise<void>
+    recover(id: string): Promise<void>
     reorder(ids: string[]): Promise<void>
     organize(id: string, input: OrganizeTaskInput): Promise<Task>
   }
@@ -268,6 +284,9 @@ export interface TodoApi {
     onChanged(callback: (settings: AppSettings) => void): () => void
   }
   flow: {
+    createAction(input: CreateActionInput): Promise<Task>
+    actionLinks(source?: ActionSource, taskId?: string): Promise<ActionLinkView[]>
+    taskFacts(date: string): Promise<{ completed: Task[]; pending: Task[] }>
     getDay(date: string): Promise<FlowDay>
     saveReview(input: SaveDailyReviewInput): Promise<DailyReview>
     createVideo(input: CreateVideoReflectionInput): Promise<VideoReflection>

@@ -1,9 +1,27 @@
 <script setup lang="ts">
+import { computed, inject, nextTick, ref, watch } from 'vue'
+import FlowActions from '../features/flow/FlowActions.vue'
+import FlowFacts from '../features/flow/FlowFacts.vue'
+import { navigationKey } from '../features/workspace/navigation'
 import SelectField from './SelectField.vue'
 import DraftStatus from './DraftStatus.vue'
+import FlowPreferences from '../features/flow/FlowPreferences.vue'
 import { useFlow } from '../features/flow/useFlow'
 const props = defineProps<{ todayCompletedCount: number; todayPendingCount: number }>()
 const { drafts, todayIso, selectedDate, activeTab, day, summary, reviewDraft, reviewInputChoice, videoUrl, videoDrafts, loading, notice, confirmation, selectedSummary, isToday, pendingThoughts, overLimit, monthLabel, selectedDateLabel, inputOptions, calendarCells, resolveConfirmation, trapConfirmationFocus, discardReview, discardVideo, selectDay, changeMonth, daySummary, setActiveTab, moveTab, addVideo, openVideo, saveVideo, removeVideo, saveReview } = useFlow(props)
+const expandedReview = ref(false)
+let navigationSequence = 0
+const navigation = inject(navigationKey, null)
+watch(() => navigation?.flowTarget.value, async target => {
+  if (!target) return
+  const request = ++navigationSequence
+  await selectDay(target.date)
+  if (request !== navigationSequence || selectedDate.value !== target.date) return
+  setActiveTab(target.videoId ? 'input' : 'review')
+  await nextTick()
+  if (target.videoId) document.getElementById(`video-${target.videoId}`)?.scrollIntoView({ block: 'center' })
+}, { immediate: true })
+const reviewDirty = computed(() => Object.entries(reviewDraft.value).some(([key, value]) => value !== day.value.review[key as keyof typeof reviewDraft.value]) || reviewInputChoice.value !== (day.value.review.inputType === 'video' ? `video:${day.value.review.inputVideoId}` : day.value.review.inputType))
 </script>
 <template>
 
@@ -11,7 +29,7 @@ const { drafts, todayIso, selectedDate, activeTab, day, summary, reviewDraft, re
     <div v-if="notice" class="flow-notice" role="status">{{ notice }}</div>
     <section class="flow-overview">
       <article :class="['flow-stat', { warning: overLimit }]">
-        <span>今日输入</span><strong>{{ day.videos.length }}/{{ day.review.videoLimit }}</strong><small>{{ pendingThoughts ? `${pendingThoughts} 条待补思考` : '每次输入都留下痕迹' }}</small>
+        <span>{{ isToday ? '今日输入' : '当日输入' }}</span><strong>{{ day.videos.length }}/{{ day.review.videoLimit }}</strong><small>{{ pendingThoughts ? `${pendingThoughts} 条待补思考` : '每次输入都留下痕迹' }}</small>
       </article>
       <article class="flow-stat"><span>今日待办</span><strong>{{ props.todayCompletedCount }}</strong><small>已完成 · {{ props.todayPendingCount }} 项仍待处理</small></article>
       <article class="flow-stat"><span>近七日复盘</span><strong>{{ summary.reviewedDays }}/7</strong><small>不追连续，只看真实变化</small></article>
@@ -28,6 +46,7 @@ const { drafts, todayIso, selectedDate, activeTab, day, summary, reviewDraft, re
         <Transition name="flow-tab" mode="out-in">
           <section v-if="activeTab === 'input'" id="flow-panel-input" key="input" class="flow-card" role="tabpanel" aria-labelledby="flow-tab-input">
             <header class="section-heading"><div><small>{{ isToday ? '观看之前' : '历史输入' }}</small><h2>{{ isToday ? '先看，再留下自己的判断' : selectedDateLabel }}</h2></div><span :class="['quota-pill', { warning: overLimit }]">{{ day.videos.length }}/{{ day.review.videoLimit }}</span></header>
+            <FlowPreferences v-if="isToday" kind="quota" />
             <div v-if="isToday" class="video-composer">
               <label><span>粘贴准备观看的视频链接</span><input v-model="videoUrl" type="url" placeholder="https://…" @keydown.enter="addVideo" /></label>
               <button class="primary-button" @click="addVideo">暂存并打开</button>
@@ -37,7 +56,7 @@ const { drafts, todayIso, selectedDate, activeTab, day, summary, reviewDraft, re
             <div v-if="loading" class="flow-empty">正在加载…</div>
             <div v-else-if="!day.videos.length" class="flow-empty">{{ isToday ? '今天还没有打开视频。没有刷，也是一种清醒的选择。' : '这一天没有视频记录。' }}</div>
             <div v-else class="video-list">
-              <article v-for="video in day.videos" :key="video.id" class="video-entry"><DraftStatus kind="video" :draft-key="video.id" @discard="discardVideo(video)" />
+              <article v-for="video in day.videos" :key="video.id" :id="`video-${video.id}`" :class="['video-entry', { 'navigation-target': navigation?.flowTarget.value?.videoId === video.id }]"><DraftStatus kind="video" :draft-key="video.id" @discard="discardVideo(video)" />
                 <div class="video-entry-heading"><div><span :class="['thought-state', { done: videoDrafts[video.id]?.thought.trim() }]">{{ videoDrafts[video.id]?.thought.trim() ? '已思考' : '待补思考' }}</span><strong :class="{ placeholder: !video.title }">{{ video.title || '待补充标题' }}</strong><small>{{ video.sourcePlatform }}<template v-if="video.author"> · {{ video.author }}</template></small></div><button class="text-button" @click="openVideo(video.sourceUrl)">再次打开 ↗</button></div>
                 <div v-if="videoDrafts[video.id]" class="video-edit-grid">
                   <label><span>标题</span><input v-model="videoDrafts[video.id].title" placeholder="看完后，这条视频讲了什么？" /></label>
@@ -46,22 +65,27 @@ const { drafts, todayIso, selectedDate, activeTab, day, summary, reviewDraft, re
                   <label class="thought-field"><span>我的思考</span><textarea v-model="videoDrafts[video.id].thought" rows="3" placeholder="我认同或不认同什么？它和我的经历有什么关系？"></textarea></label>
                 </div>
                 <footer><button class="danger-button" @click="removeVideo(video)">删除</button><button class="secondary-button" @click="saveVideo(video)">保存记录</button></footer>
+                <FlowActions :source="{ kind: 'video', key: video.id }" :updated-at="video.updatedAt" :date="video.date" :saved="true" :dirty="Object.entries(videoDrafts[video.id] || {}).some(([key, value]) => value !== video[key as 'title' | 'sourceUrl' | 'author' | 'thought'])" :suggestion="videoDrafts[video.id]?.thought || video.title" />
               </article>
             </div>
           </section>
 
           <section v-else id="flow-panel-review" key="review" class="flow-card review-card" role="tabpanel" aria-labelledby="flow-tab-review">
             <header class="section-heading"><div><small>每日复盘</small><h2>{{ selectedDateLabel }}</h2></div><span :class="['saved-pill', { saved: day.review.savedAt }]">{{ day.review.savedAt ? '已保存' : '未保存' }}</span></header>
-            <DraftStatus kind="review" :draft-key="selectedDate" @discard="discardReview" />
-<div class="review-grid">
+  <FlowPreferences kind="reminder" />
+  <DraftStatus kind="review" :draft-key="selectedDate" @discard="discardReview" />
+  <FlowFacts :date="selectedDate" />
+  <button class="text-button" :aria-expanded="expandedReview" @click="expandedReview = !expandedReview">{{ expandedReview ? '收起为三问' : '展开完整六问' }}</button>
+<div :class="['review-grid', { 'light-review': !expandedReview }]">
               <label><span>1 · 今天做好了什么？</span><textarea v-model="reviewDraft.didWell" rows="3" placeholder="哪件事值得肯定？"></textarea></label>
-              <label><span>2 · 今天什么没做好？</span><textarea v-model="reviewDraft.didNotWell" rows="3" placeholder="如实写下，不责备自己。"></textarea></label>
-              <label class="wide"><span>3 · 为什么会这样？下次准备怎么调整？</span><textarea v-model="reviewDraft.reflection" rows="3" placeholder="找到原因，再留一个可执行的调整。"></textarea></label>
-              <label class="wide"><span>4 · 今天最有价值的一个输入是什么？</span><SelectField v-model="reviewInputChoice" aria-label="今日最有价值的输入" :options="inputOptions" /><textarea v-if="reviewInputChoice === 'other'" v-model="reviewDraft.inputText" rows="2" placeholder="来自哪本书、哪篇文章或哪次谈话？"></textarea></label>
-              <label><span>5 · 今天完成的一个输出是什么？</span><textarea v-model="reviewDraft.outputText" rows="3" placeholder="文字、作品、表达或一次行动。"></textarea></label>
-              <label><span>6 · 明天有什么期待？准备从哪一步开始？</span><textarea v-model="reviewDraft.tomorrowExpectation" rows="3" placeholder="给明天留一个轻盈的起点。"></textarea></label>
+              <label v-show="expandedReview"><span>2 · 今天什么没做好？</span><textarea v-model="reviewDraft.didNotWell" rows="3" placeholder="如实写下，不责备自己。"></textarea></label>
+              <label class="wide"><span>{{ expandedReview ? 3 : 2 }} · 为什么会这样？下次准备怎么调整？</span><textarea v-model="reviewDraft.reflection" rows="3" placeholder="找到原因，再留一个可执行的调整。"></textarea></label>
+              <label v-show="expandedReview" class="wide"><span>4 · 今天最有价值的一个输入是什么？</span><SelectField v-model="reviewInputChoice" aria-label="今日最有价值的输入" :options="inputOptions" /><textarea v-if="reviewInputChoice === 'other'" v-model="reviewDraft.inputText" rows="2" placeholder="来自哪本书、哪篇文章或哪次谈话？"></textarea></label>
+              <label v-show="expandedReview"><span>5 · 今天完成的一个输出是什么？</span><textarea v-model="reviewDraft.outputText" rows="3" placeholder="文字、作品、表达或一次行动。"></textarea></label>
+              <label><span>{{ expandedReview ? 6 : 3 }} · 明天有什么期待？准备从哪一步开始？</span><textarea v-model="reviewDraft.tomorrowExpectation" rows="3" placeholder="给明天留一个轻盈的起点。"></textarea></label>
             </div>
             <footer class="review-footer"><small>{{ day.review.savedAt ? `上次保存：${new Date(day.review.savedAt).toLocaleString('zh-CN')}` : '内容可留空，保存即表示今天已经复盘。' }}</small><button class="primary-button" @click="saveReview">保存今日复盘</button></footer>
+            <FlowActions :source="{ kind: 'review', key: selectedDate }" :updated-at="day.review.updatedAt" :date="selectedDate" :saved="!!day.review.savedAt" :dirty="reviewDirty" :suggestion="reviewDraft.tomorrowExpectation || ''" />
           </section>
         </Transition>
       </div>

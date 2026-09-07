@@ -6,7 +6,7 @@ import type { TodoApi } from '../src/shared/contracts'
 
 function createApi(overrides: Partial<TodoApi> = {}): TodoApi {
   return {
-    tasks: { list: vi.fn(async () => []), create: vi.fn(async () => undefined), update: vi.fn(), complete: vi.fn(), restore: vi.fn(), remove: vi.fn(), restoreRemoved: vi.fn(), reorder: vi.fn() },
+    tasks: { list: vi.fn(async () => []), create: vi.fn(async () => undefined), update: vi.fn(), complete: vi.fn(), reopen: vi.fn(), remove: vi.fn(), recover: vi.fn(), reorder: vi.fn() },
     lists: { list: vi.fn(async () => []), create: vi.fn(), update: vi.fn(), remove: vi.fn(), reorder: vi.fn() },
     tags: { list: vi.fn(async () => []), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
     filters: { list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
@@ -62,7 +62,7 @@ describe('QuickCapture', () => {
     vi.useFakeTimers()
     const close = vi.spyOn(window, 'close').mockImplementation(() => undefined)
     const create = vi.fn(async () => undefined)
-    window.todoApi = createApi({ tasks: { list: vi.fn(async () => []), create, update: vi.fn(), complete: vi.fn(), restore: vi.fn(), remove: vi.fn(), restoreRemoved: vi.fn(), reorder: vi.fn() } })
+    window.todoApi = createApi({ tasks: { list: vi.fn(async () => []), create, update: vi.fn(), complete: vi.fn(), reopen: vi.fn(), remove: vi.fn(), recover: vi.fn(), reorder: vi.fn() } })
     const wrapper = mount(QuickCapture)
     await flushPromises()
     await wrapper.get('input').setValue('整理会议纪要')
@@ -78,7 +78,7 @@ describe('QuickCapture', () => {
   it('keeps the window open when saving fails', async () => {
     const close = vi.spyOn(window, 'close').mockImplementation(() => undefined)
     const create = vi.fn(async () => { throw new Error('write failed') })
-    window.todoApi = createApi({ tasks: { list: vi.fn(async () => []), create, update: vi.fn(), complete: vi.fn(), restore: vi.fn(), remove: vi.fn(), restoreRemoved: vi.fn(), reorder: vi.fn() } })
+    window.todoApi = createApi({ tasks: { list: vi.fn(async () => []), create, update: vi.fn(), complete: vi.fn(), reopen: vi.fn(), remove: vi.fn(), recover: vi.fn(), reorder: vi.fn() } })
     const wrapper = mount(QuickCapture)
     await flushPromises()
     await wrapper.get('input').setValue('无法保存的任务')
