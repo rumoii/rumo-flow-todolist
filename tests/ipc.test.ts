@@ -15,6 +15,32 @@ import type { Repository } from '../electron/database/repository'
 const current: AppSettings = { theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
 const next: AppSettings = { ...current, globalShortcut: 'Ctrl+Shift+Space' }
 
+it('coordinates arrangement, sends the authoritative snapshot, and broadcasts only actual writes', async () => {
+  const input = { taskId: 'task', updatedAt: 'before', generation: 'generation', action: { kind: 'plan', target: 'today' } }
+  const task = { id: 'task', updatedAt: 'after' }
+  const snapshot = { generation: 'generation', revision: 0, baseUpdatedAt: 'after', record: null }
+  const arrange = vi.fn(() => task)
+  const onDataChanged = vi.fn()
+  const barrier = { locked: false, run: vi.fn(async (reason, action, synchronization) => {
+    expect(reason).toBe('arrange')
+    expect(synchronization.taskId).toBe('task')
+    const result = action()
+    expect(synchronization.read()).toEqual({ task, snapshot })
+    return result
+  }) }
+  registerIpcHandlers({ taskCommands: { arrange }, drafts: { get: () => snapshot } } as never, { barrier: barrier as never, onDataChanged })
+  const handler = electronState.handlers.get('tasks:arrange')!
+  expect(await handler({}, input)).toEqual(task)
+  expect(arrange).toHaveBeenCalledWith(input)
+  expect(onDataChanged).toHaveBeenCalledExactlyOnceWith(['tasks'])
+  onDataChanged.mockClear()
+  await handler({}, { ...input, updatedAt: 'after' })
+  expect(onDataChanged).not.toHaveBeenCalled()
+  arrange.mockImplementationOnce(() => { throw new Error('pending draft') })
+  await expect(handler({}, input)).rejects.toThrow('pending draft')
+  expect(onDataChanged).not.toHaveBeenCalled()
+})
+
 describe('settings IPC ordering', () => {
   beforeEach(() => { electronState.handlers.clear() })
 

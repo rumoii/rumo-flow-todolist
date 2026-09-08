@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { TodoApi } from '../src/shared/contracts'
+import type { LifecycleResume, TodoApi } from '../src/shared/contracts'
 const api: TodoApi = {
   drafts: {
     get: (kind, key) => ipcRenderer.invoke('drafts:get', kind, key),
@@ -9,22 +9,20 @@ const api: TodoApi = {
   },
   lifecycle: {
     onPrepare: (callback) => {
-      const listener = (_event: Electron.IpcRendererEvent, request: {
-        id: string
-        reason: 'backup' | 'import' | 'close'
-      }) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: Parameters<Parameters<TodoApi['lifecycle']['onPrepare']>[0]>[0]) => {
         Promise.resolve().then(() => callback(request)).then(() => ipcRenderer.send('lifecycle:ack', { id: request.id }), (error) => ipcRenderer.send('lifecycle:ack', { id: request.id, error: error instanceof Error ? error.message : '草稿保留失败' }))
       }
       ipcRenderer.on('lifecycle:prepare', listener)
       return () => { ipcRenderer.removeListener('lifecycle:prepare', listener); }
     },
     onResume: (callback) => {
-      const listener = (_event: Electron.IpcRendererEvent, replaced: boolean) => callback(replaced)
+      const listener = (_event: Electron.IpcRendererEvent, result: LifecycleResume) => callback(result)
       ipcRenderer.on('lifecycle:resume', listener)
       return () => { ipcRenderer.removeListener('lifecycle:resume', listener); }
     },
   },
   tasks: {
+    arrange: (input) => ipcRenderer.invoke('tasks:arrange', input),
     batch: (ids, action) => ipcRenderer.invoke('tasks:batch', ids, action),
     search: (text) => ipcRenderer.invoke('tasks:search', text),
     list: (query) => ipcRenderer.invoke('tasks:list', query),

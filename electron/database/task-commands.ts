@@ -1,12 +1,49 @@
 import type { TaskRepository } from './tasks'
-import type { TaskBatchAction } from '../../src/shared/contracts'
+import type { ArrangeTaskInput, Task, TaskBatchAction, TaskPlan } from '../../src/shared/contracts'
 import { getDatabase } from './db'
 import { removeTasks, recoverTasks, purgeTasks } from './task-trash'
-import { validPlan } from '../../src/shared/planning'
+import { localDay, planFor, shiftDay, validPlan } from '../../src/shared/planning'
 import { validCalendarDate } from './common'
 
 export class TaskCommands {
   constructor(private readonly tasks: TaskRepository) {}
+  arrange(input: ArrangeTaskInput): Task {
+    if (!input || typeof input.taskId !== 'string' || !input.taskId || typeof input.updatedAt !== 'string' || typeof input.generation !== 'string') throw new Error('任务安排参数无效')
+    const action = input.action
+    if (!action || !['plan', 'focus'].includes(action.kind)) throw new Error('任务安排操作无效')
+    const today = localDay()
+    let plan: TaskPlan | null = null
+    if (action.kind === 'focus') {
+      if (typeof action.enabled !== 'boolean') throw new Error('重点状态无效')
+    } else if (action.target !== null) {
+      if (typeof action.target === 'string') {
+        if (!['today', 'tomorrow', 'week', 'month'].includes(action.target)) throw new Error('任务安排目标无效')
+        plan = action.target === 'today' || action.target === 'tomorrow' ? planFor('day', action.target === 'today' ? today : shiftDay(today, 1)) : planFor(action.target, today)
+      } else {
+        if (!action.target || !['day', 'week', 'month'].includes(action.target.kind) || !validCalendarDate(action.target.start)) throw new Error('任务安排日期无效')
+        plan = planFor(action.target.kind, action.target.start)
+        if (!validPlan(plan)) throw new Error('任务安排日期无效')
+      }
+    }
+    const db = getDatabase()
+    return db.transaction(() => {
+      const generation = (db.prepare('SELECT generation FROM editor_draft_meta WHERE id=1').get() as { generation: string }).generation
+      if (input.generation !== generation) throw new Error('数据已恢复，请重新打开任务')
+      const current = this.tasks.getTask(input.taskId)
+      if (current.deletedAt || current.status !== 'active' || current.parentTaskId) throw new Error('只能安排未完成的顶层任务')
+      if (current.updatedAt !== input.updatedAt) throw new Error('任务已变化，请刷新后重新安排')
+      if (db.prepare("SELECT 1 FROM editor_drafts WHERE kind='task' AND entity_key=? AND payload IS NOT NULL").get(input.taskId)) throw new Error('该任务有未保存修改，请先在详情中保存或放弃')
+      let focusDate = current.focusDate
+      if (action.kind === 'focus') {
+        plan = action.enabled ? planFor('day', today) : current.plan
+        focusDate = action.enabled ? today : null
+      } else if (plan?.kind !== 'day' || plan.start !== current.plan?.start) focusDate = null
+      if (JSON.stringify(plan) === JSON.stringify(current.plan) && focusDate === current.focusDate) return current
+      const updatedAt = new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString()
+      db.prepare('UPDATE tasks SET plan_json=?,focus_date=?,updated_at=? WHERE id=?').run(plan ? JSON.stringify(plan) : null, focusDate, updatedAt, current.id)
+      return this.tasks.getTask(current.id)
+    })()
+  }
   batch(ids: string[], action: TaskBatchAction): void {
     if (!Array.isArray(ids) || !ids.length || ids.length > 500 || ids.some(id => typeof id !== 'string' || !id)) throw new Error('请选择 1 至 500 个任务')
     if (!action || !['plan','deadline','move','tags','complete','remove','recover','purge'].includes(action.kind)) throw new Error('批量操作无效')

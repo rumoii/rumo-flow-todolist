@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import QuickCapture from '../src/QuickCapture.vue'
 import type { TodoApi } from '../src/shared/contracts'
+import { createDraftCoordinator, draftCoordinatorKey } from '../src/composables/draft-coordinator'
 
 function createApi(overrides: Partial<TodoApi> = {}): TodoApi {
   return {
@@ -18,6 +19,26 @@ function createApi(overrides: Partial<TodoApi> = {}): TodoApi {
 }
 
 describe('QuickCapture', () => {
+  it('offers a visible close action and retains input when draft preservation fails', async () => {
+    const api = createApi()
+    window.todoApi = api
+    const drafts = createDraftCoordinator(api)
+    const flush = vi.spyOn(drafts, 'flush').mockRejectedValueOnce(new Error('disk failed')).mockResolvedValueOnce()
+    const close = vi.spyOn(window, 'close').mockImplementation(() => undefined)
+    const wrapper = mount(QuickCapture, { global: { provide: { [draftCoordinatorKey as symbol]: drafts } } })
+    await flushPromises()
+    await wrapper.get('input').setValue('稍后继续的输入')
+    await wrapper.get('[aria-label="关闭快速捕获"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('草稿保留失败，请重试后关闭')
+    expect(wrapper.get('input').element.value).toBe('稍后继续的输入')
+    expect(close).not.toHaveBeenCalled()
+    await wrapper.get('[aria-label="关闭快速捕获"]').trigger('click')
+    await flushPromises()
+    expect(flush).toHaveBeenCalledTimes(2)
+    expect(close).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
@@ -61,7 +82,7 @@ describe('QuickCapture', () => {
   it('shows success feedback and closes after saving', async () => {
     vi.useFakeTimers()
     const close = vi.spyOn(window, 'close').mockImplementation(() => undefined)
-    const create = vi.fn(async () => undefined)
+    const create = vi.fn(async () => ({ id: 'created', title: '整理会议纪要', listId: null, plan: null }))
     window.todoApi = createApi({ tasks: { list: vi.fn(async () => []), create, update: vi.fn(), complete: vi.fn(), reopen: vi.fn(), remove: vi.fn(), recover: vi.fn(), reorder: vi.fn() } })
     const wrapper = mount(QuickCapture)
     await flushPromises()
@@ -69,7 +90,7 @@ describe('QuickCapture', () => {
     await wrapper.get('input').trigger('keydown.enter')
     await flushPromises()
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ title: '整理会议纪要', tagIds: [] }))
-    expect(wrapper.text()).toContain('已加入收集箱')
+    expect(wrapper.text()).toContain('已保存到收集箱 · 未安排')
     vi.advanceTimersByTime(720)
     await flushPromises()
     expect(close).toHaveBeenCalledOnce()

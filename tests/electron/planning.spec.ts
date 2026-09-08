@@ -35,7 +35,7 @@ test('plans tasks, creates linked actions, searches and recovers through real IP
     await expect.poll(() => page.evaluate(async id => (await window.todoApi.tasks.list({})).find(task => task.id === id), task.id)).toMatchObject({ plan: { kind: 'day', start: today }, focusDate: today, dueDate: today })
     await page.getByRole('button', { name: '关闭', exact: true }).click()
     await page.getByRole('button', { name: /^今天/ }).click()
-    await expect(page.locator('.pinned-zone')).toContainText('待细化的任务')
+    await expect(page.locator('.today-focus')).toContainText('待细化的任务')
     await page.getByRole('button', { name: '心流 记录与复盘', exact: true }).click()
     await page.getByRole('tab', { name: /每日复盘/ }).click()
     await page.getByPlaceholder('哪件事值得肯定？').fill('完成了计划整理')

@@ -1,6 +1,7 @@
 import { reactive, ref } from 'vue'
 import type { InjectionKey } from 'vue'
-import type { TodoApi } from '../shared/contracts'
+import type { TaskSynchronization, TodoApi } from '../shared/contracts'
+import { taskToDraft } from '../shared/drafts'
 import type { DraftKind, DraftPayloads, DraftSnapshot } from '../shared/drafts'
 interface Entry {
   kind: DraftKind
@@ -20,6 +21,7 @@ export function createDraftCoordinator(api: TodoApi | undefined) {
   const paused = ref(false)
   const saving = ref(false)
   const epoch = ref(0)
+  const synchronizedTask = ref<TaskSynchronization | null>(null)
   let removePrepare: (() => void) | undefined
   let removeResume: (() => void) | undefined
   const supported = Boolean(api?.drafts)
@@ -161,6 +163,7 @@ export function createDraftCoordinator(api: TodoApi | undefined) {
     for (const entry of entries.values())
       clearTimeout(entry.timer)
     entries.clear()
+    synchronizedTask.value = null
     epoch.value++
   }
   function retainTasks(ids: Set<string>) {
@@ -169,9 +172,33 @@ export function createDraftCoordinator(api: TodoApi | undefined) {
         forget(entry.kind, entry.key)
   }
   function connect() {
-    removePrepare = api?.lifecycle?.onPrepare(async () => { paused.value = true; await flush(); })
-    removeResume = api?.lifecycle?.onResume(replaced => { if (replaced)
-      reset(); paused.value = false; })
+    removePrepare = api?.lifecycle?.onPrepare(async () => {
+      paused.value = true
+      if (saving.value) throw new Error('正在保存修改，请稍后重试')
+      await flush()
+    })
+    removeResume = api?.lifecycle?.onResume(result => {
+      try {
+        if (result.replaced) reset()
+        if (result.synchronizedTask) {
+          const sync = clone(result.synchronizedTask)
+          const entry = entries.get(identity('task', sync.task.id))
+          if (sync.snapshot.record || (entry && (entry.dirty || entry.snapshot.record || entry.snapshot.generation !== sync.snapshot.generation))) return
+          if (entry) {
+            clearTimeout(entry.timer)
+            entry.snapshot = sync.snapshot
+            entry.payload = taskToDraft(sync.task)
+            entry.status = ''
+            entry.error = ''
+          }
+          else {
+            entries.set(identity('task', sync.task.id), { kind: 'task', key: sync.task.id, snapshot: sync.snapshot,
+              payload: taskToDraft(sync.task), dirty: false, sequence: 0, status: '', error: '', queue: Promise.resolve() })
+          }
+          synchronizedTask.value = sync
+        }
+      } finally { paused.value = false }
+    })
   }
   function dispose() {
     removePrepare?.()
@@ -181,7 +208,7 @@ export function createDraftCoordinator(api: TodoApi | undefined) {
   }
   const status = (kind: DraftKind, key: string) => entries.get(identity(kind, key))?.status ?? ''
   const error = (kind: DraftKind, key: string) => entries.get(identity(kind, key))?.error ?? ''
-  return { supported, paused, saving, epoch, open, update, flush, commit, discard, reload, forget, reset, retainTasks, connect, dispose, status, error }
+  return { supported, paused, saving, epoch, synchronizedTask, open, update, flush, commit, discard, reload, forget, reset, retainTasks, connect, dispose, status, error }
 }
 export type DraftCoordinator = ReturnType<typeof createDraftCoordinator>
 export const draftCoordinatorKey: InjectionKey<DraftCoordinator> = Symbol('draft-coordinator')

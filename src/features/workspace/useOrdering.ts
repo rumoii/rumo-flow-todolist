@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { planFor } from '../../shared/planning'
 import type { Ref, ComputedRef } from 'vue'
-import type { Task, TaskList, TaskPriority } from '../../shared/contracts'
+import type { ArrangeTaskAction, Task, TaskList, TaskPriority } from '../../shared/contracts'
 import type { TaskEditorDraft } from '../../shared/drafts'
 interface Dependencies {
   hasApi: () => boolean
@@ -13,9 +13,9 @@ interface Dependencies {
   priorityLabel: (value: TaskPriority) => string
   taskReorderEnabled: ComputedRef<boolean>
   lists: Ref<TaskList[]>
-  dateLabel: (value: string | null) => string
+  arrangeTask: (task: Task, action: ArrangeTaskAction) => Promise<void>
 }
-export function useOrdering({ hasApi, tasks, selectedTaskId, detailDraft, notify, closeMenus, priorityLabel, taskReorderEnabled, lists, dateLabel }: Dependencies) {
+export function useOrdering({ hasApi, tasks, selectedTaskId, detailDraft, notify, closeMenus, priorityLabel, taskReorderEnabled, lists, arrangeTask }: Dependencies) {
   const draggedTaskId = ref<string | null>(null)
   const draggedListId = ref<string | null>(null)
   const taskDropTargetId = ref<string | null>(null)
@@ -165,13 +165,6 @@ export function useOrdering({ hasApi, tasks, selectedTaskId, detailDraft, notify
     }
   }
   async function onWeekDrop(event: DragEvent, targetDate: string) { event.preventDefault(); const task = tasks.value.find(item => item.id === draggedTaskId.value); endTaskDrag(); if (!task || (task.plan?.kind === 'day' && task.plan.start === targetDate))
-    return; try {
-    const updated = hasApi() ? await window.todoApi.tasks.update(task.id, { plan: planFor('day', targetDate), focusDate: null }) : { ...task, plan: planFor('day', targetDate), focusDate: null }
-    Object.assign(task, updated)
-    notify(`已移动到${dateLabel(targetDate)}`)
-  }
-  catch {
-    notify('日期更新失败')
-  } }
+    return; await arrangeTask(task, { kind: 'plan', target: planFor('day', targetDate) }) }
   return { draggedTaskId, draggedListId, taskDropTargetId, listDropTargetId, persistTaskOrder, taskGroupFor, organizeTask, moveTaskToGroupEnd, setTaskPinned, setTaskPriority, startTaskDrag, endTaskDrag, dropTaskBefore, dropTaskInZone, persistListOrder, listGroupFor, organizeList, moveListToGroupEnd, setListPinned, startListDrag, endListDrag, dropListBefore, onWeekDrop }
 }

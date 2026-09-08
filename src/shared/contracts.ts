@@ -1,6 +1,11 @@
 import type { DraftKind, DraftSnapshot, DraftWrite, DraftRef, DraftRecord, DataDomain } from './drafts'
 import type { TaskPlan } from './planning'
 export type { TaskPlan, PlanKind } from './planning'
+export type ArrangeTaskAction = { kind: 'plan'; target: TaskPlan | 'today' | 'tomorrow' | 'week' | 'month' | null } | { kind: 'focus'; enabled: boolean }
+export interface ArrangeTaskInput { taskId: string; updatedAt: string; generation: string; action: ArrangeTaskAction }
+export type LifecycleReason = 'backup' | 'import' | 'close' | 'arrange'
+export interface TaskSynchronization { task: Task; snapshot: DraftSnapshot }
+export interface LifecycleResume { replaced: boolean; synchronizedTask?: TaskSynchronization }
 export type TaskBatchAction = { kind: 'plan'; plan: TaskPlan | null } | { kind: 'deadline'; date: string | null } | { kind: 'move'; listId: string | null } | { kind: 'tags'; tagIds: string[] } | { kind: 'complete' | 'remove' | 'recover' | 'purge' }
 export interface ActionSource { kind: 'review' | 'video'; key: string }
 export interface ActionLink { requestId: string; taskId: string | null; sourceKind: 'review' | 'video'; sourceKey: string; sourceLabel: string; sourceDate: string; createdAt: string; sourceDeleted: boolean }
@@ -242,10 +247,11 @@ export interface TodoApi {
     commit(input: DraftRef & { acceptChanges?: boolean }): Promise<unknown>
   }
   lifecycle: {
-    onPrepare(callback: (request: { id: string; reason: 'backup' | 'import' | 'close' }) => Promise<void>): () => void
-    onResume(callback: (replaced: boolean) => void): () => void
+    onPrepare(callback: (request: { id: string; reason: LifecycleReason; taskId?: string }) => Promise<void>): () => void
+    onResume(callback: (result: LifecycleResume) => void): () => void
   }
   tasks: {
+    arrange(input: ArrangeTaskInput): Promise<Task>
     batch(ids: string[], action: TaskBatchAction): Promise<void>
     search(text: string): Promise<SearchHit[]>
     list(query?: TaskQuery): Promise<Task[]>

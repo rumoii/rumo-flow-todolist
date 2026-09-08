@@ -12,6 +12,7 @@ import { matchesTaskFilter } from '../../shared/task-filter'
 import type { CreateTaskInput, SavedFilter, Tag, Task, TaskList, TaskPriority } from '../../shared/contracts'
 import { useDetails } from './useDetails'
 import { useOrdering } from './useOrdering'
+import { useTaskArrangement } from './useTaskArrangement'
 import { usePreferences } from './usePreferences'
 import { useTagManagement } from './useTagManagement'
 export function useWorkspace() {
@@ -96,6 +97,8 @@ export function useWorkspace() {
   const fallbackTasks: Task[] = []
   const priorityRank: Record<TaskPriority, number> = { high: 0, medium: 1, low: 2, none: 3 }
   const { detailLoading, selectedTaskId, detailOpen, detailDraft, tagQuery, newSubtaskTitle, recurrenceDrafts, activeTask, subtasks, visibleDetailTags, canCreateDetailTag, selectTask, closeDetail, discardTaskDraft, createTagFromDetail, saveDetail, addSubtask, createTaskAsSubtask } = useDetails({ tasks, tags, drafts, notify, closeMenus, hasApi, managedTagDrafts })
+  const arrangement = useTaskArrangement(tasks, drafts.epoch, selectTask, notify)
+  const quickPlanHint = computed(() => activeView.value === 'today' ? '新增任务安排到今天，不自动设为重点' : activeView.value === 'week' ? '新增任务进入本周待细化，可再安排到某一天' : activeView.value === 'month' ? '新增任务进入月内待细化，可再安排到周或日' : '新增任务默认未安排，可点击任务上的计划按钮安排时间')
   function notify(message: string, action: {
     label: string
     run: () => Promise<void>
@@ -147,15 +150,18 @@ export function useWorkspace() {
   const viewTitle = computed(() => ({ inbox: '收集箱', today: '今天', all: '总计划', month: '本月', overdue: '已逾期', trash: '回收站', history: '历史搜索', week: '本周', completed: '已完成', flow: '心流', tags: '标签管理' }[activeView.value as string] || activeFilter.value?.name || lists.value.find(list => list.id === activeListId.value)?.name || '待办'))
   const viewHint = computed(() => activeView.value === 'today' ? `${currentDate.value.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })} · 把注意力放在最重要的事上` : activeView.value === 'tags' ? '用标签串联任务，让分类更轻松' : activeView.value === 'flow' ? '让输入慢下来，把思考留下来' : activeView.value === 'all' ? '计划决定何时行动，截止日期决定何时到期' : activeView.value === 'week' ? '周一至周日的执行计划' : activeView.value === 'month' ? '从月目标逐步安排到周和日' : activeView.value === 'trash' ? '恢复误删内容，或确认永久删除' : activeView.value === 'history' ? '在已保存内容中找回思考和行动' : activeView.value === 'overdue' ? '按截止日期和时间检查逾期任务' : activeView.value === 'completed' ? '已经完成的任务' : activeFilter.value ? '按保存的条件自动汇总任务' : '这个清单中的任务')
   const taskReorderEnabled = computed(() => !search.value.trim() && (activeView.value === 'all' || Boolean(activeListId.value)))
-  const { draggedTaskId, draggedListId, taskDropTargetId, listDropTargetId, persistTaskOrder, taskGroupFor, organizeTask, moveTaskToGroupEnd, setTaskPinned, setTaskPriority, startTaskDrag, endTaskDrag, dropTaskBefore, dropTaskInZone, persistListOrder, listGroupFor, organizeList, moveListToGroupEnd, setListPinned, startListDrag, endListDrag, dropListBefore, onWeekDrop } = useOrdering({ hasApi, tasks, selectedTaskId, detailDraft, notify, closeMenus, priorityLabel, taskReorderEnabled, lists, dateLabel })
+  const { draggedTaskId, draggedListId, taskDropTargetId, listDropTargetId, persistTaskOrder, taskGroupFor, organizeTask, moveTaskToGroupEnd, setTaskPinned, setTaskPriority, startTaskDrag, endTaskDrag, dropTaskBefore, dropTaskInZone, persistListOrder, listGroupFor, organizeList, moveListToGroupEnd, setListPinned, startListDrag, endListDrag, dropListBefore, onWeekDrop } = useOrdering({ hasApi, tasks, selectedTaskId, detailDraft, notify, closeMenus, priorityLabel, taskReorderEnabled, lists, arrangeTask: arrangement.arrangeTask })
   function isTodayTask(task: Task) {
     return !task.parentTaskId && task.status === 'active' && inPlan(task, 'day', todayIso.value)
   }
   function compareTasks(a: Task, b: Task) {
     return Number(b.isPinned) - Number(a.isPinned) || priorityRank[a.priority] - priorityRank[b.priority] || a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)
   }
-  const filteredTasks = computed(() => {
+  function matchesVisibleFilter(task: Task) {
     const q = search.value.trim().toLowerCase()
+    return (!temporaryTagId.value || task.tags.some(tag => tag.id === temporaryTagId.value)) && (!q || task.title.toLowerCase().includes(q) || task.notes.toLowerCase().includes(q) || task.tags.some(tag => tag.name.toLowerCase().includes(q)))
+  }
+  const filteredTasks = computed(() => {
     return tasks.value.filter(task => {
       if (task.parentTaskId)
         return false
@@ -173,19 +179,17 @@ export function useWorkspace() {
         return false
       if (activeView.value === 'week' && !inPlan(task, 'week', todayIso.value))
         return false
-      if (temporaryTagId.value && !task.tags.some(tag => tag.id === temporaryTagId.value))
-        return false
       if (activeView.value === 'month' && !inPlan(task, 'month', todayIso.value)) return false
       if (activeView.value === 'all' && ((unplannedOnly.value && task.plan) || !matchesTaskFilter(task, { status: totalStatus.value, due: totalDeadline.value }, currentDate.value))) return false
       if (activeFilter.value && !matchesTaskFilter(task, activeFilter.value.criteria, currentDate.value))
         return false
-      return !q || task.title.toLowerCase().includes(q) || task.notes.toLowerCase().includes(q) || task.tags.some(tag => tag.name.toLowerCase().includes(q))
+      return matchesVisibleFilter(task)
     }).sort(compareTasks)
   })
   const pinnedTasks = computed(() => filteredTasks.value.filter(task => activeView.value === 'today' ? task.focusDate === todayIso.value : task.isPinned))
   const regularTasks = computed(() => filteredTasks.value.filter(task => activeView.value === 'today' ? task.focusDate !== todayIso.value : !task.isPinned))
-  const dueToday = computed(() => tasks.value.filter(task => !task.parentTaskId && task.status === 'active' && task.dueDate === todayIso.value && !isTodayTask(task)))
-  const pastPlanned = computed(() => tasks.value.filter(task => !task.parentTaskId && task.status === 'active' && task.plan && planEnd(task.plan) < todayIso.value && !dueToday.value.some(other => other.id === task.id)))
+  const dueToday = computed(() => tasks.value.filter(task => !task.parentTaskId && task.status === 'active' && task.dueDate === todayIso.value && !isTodayTask(task) && matchesVisibleFilter(task)))
+  const pastPlanned = computed(() => tasks.value.filter(task => !task.parentTaskId && task.status === 'active' && task.plan && planEnd(task.plan) < todayIso.value && !dueToday.value.some(other => other.id === task.id) && matchesVisibleFilter(task)))
   function taskGroupLabel(task: Task): string { if (groupBy.value === 'list')
     return lists.value.find(list => list.id === task.listId)?.name ?? '收集箱'; if (groupBy.value === 'priority')
     return priorityLabel(task.priority); if (groupBy.value === 'tag')
@@ -430,5 +434,5 @@ export function useWorkspace() {
     removeFlowListener = window.todoApi.desktop.onOpenFlow(() => { activeView.value = 'flow'; detailOpen.value = false; settingsOpen.value = false; })
   } })
   onBeforeUnmount(() => { window.removeEventListener('keydown', handleShortcut); removeDesktopListener?.(); removeFlowListener?.(); removeDataListener?.(); window.clearTimeout(toastTimer); })
-  return { loadData, totalStatus, totalDeadline, unplannedOnly, dueToday, pastPlanned, drafts, closeMenus, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon, settings, settingsSaving, desktopStatus, exportBackup, importBackup, saveSettings, shortcutsOpen, newTagName, managedTagDrafts, pendingTagDelete, tagsSaving, createManagedTag, updateManagedTag, deleteManagedTag, trapDialogFocus, detailLoading, search, pendingDelete, selectedTaskId, detailOpen, detailDraft, tagQuery, newSubtaskTitle, activeTask, subtasks, visibleDetailTags, canCreateDetailTag, closeDetail, discardTaskDraft, createTagFromDetail, saveDetail, addSubtask, toggleTask, quickTitle, quickInput, groupBy, temporaryTagId, loading, todayIso, selectTask, viewTitle, viewHint, taskReorderEnabled, draggedTaskId, endTaskDrag, dropTaskInZone, onWeekDrop, filteredTasks, pinnedTasks, groupedRegularTasks, completedTodayCount, temporaryTag, emptyState, priorityCode, priorityClass, createTask, weekDates, tasksForDate, lists, openTaskMenuId, taskDropTargetId, setTaskPinned, setTaskPriority, startTaskDrag, dropTaskBefore, dateLabel, priorityLabel, filterByTag, toggleTaskMenu, pendingListDelete, listDeletePolicy, toast, toastAction, removeTask, confirmListDelete, runToastAction }
+  return { arrangement, quickPlanHint, loadData, totalStatus, totalDeadline, unplannedOnly, dueToday, pastPlanned, drafts, closeMenus, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon, settings, settingsSaving, desktopStatus, exportBackup, importBackup, saveSettings, shortcutsOpen, newTagName, managedTagDrafts, pendingTagDelete, tagsSaving, createManagedTag, updateManagedTag, deleteManagedTag, trapDialogFocus, detailLoading, search, pendingDelete, selectedTaskId, detailOpen, detailDraft, tagQuery, newSubtaskTitle, activeTask, subtasks, visibleDetailTags, canCreateDetailTag, closeDetail, discardTaskDraft, createTagFromDetail, saveDetail, addSubtask, toggleTask, quickTitle, quickInput, groupBy, temporaryTagId, loading, todayIso, selectTask, viewTitle, viewHint, taskReorderEnabled, draggedTaskId, endTaskDrag, dropTaskInZone, onWeekDrop, filteredTasks, pinnedTasks, groupedRegularTasks, completedTodayCount, temporaryTag, emptyState, priorityCode, priorityClass, createTask, weekDates, tasksForDate, lists, openTaskMenuId, taskDropTargetId, setTaskPinned, setTaskPriority, startTaskDrag, dropTaskBefore, dateLabel, priorityLabel, filterByTag, toggleTaskMenu, pendingListDelete, listDeletePolicy, toast, toastAction, removeTask, confirmListDelete, runToastAction }
 }

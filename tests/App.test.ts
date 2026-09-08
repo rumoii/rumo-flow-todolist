@@ -145,6 +145,51 @@ function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = [], seedFilter
 }
 
 describe('App critical interactions', () => {
+  it('puts focus first, separates ordinary pinning and filters both reminder sections', async () => {
+    const today = new Date().toLocaleDateString('sv-SE')
+    window.todoApi = createApi([
+      makeTask({ id: 'focus', title: '项目重点', focusDate: today }),
+      makeTask({ id: 'pinned', title: '普通置顶', isPinned: true }),
+      makeTask({ id: 'due', title: '项目到期', plan: null }),
+      makeTask({ id: 'past', title: '项目过往', dueDate: null, plan: { kind: 'day', start: '2025-01-01' } }),
+    ])
+    const wrapper = mount(App)
+    await flushPromises()
+    expect(wrapper.get('.today-focus').text()).toContain('项目重点')
+    expect(wrapper.get('.today-focus').text()).not.toContain('普通置顶')
+    expect(wrapper.get('.today-other').text()).toContain('普通置顶')
+    expect(wrapper.get('.today-reminders').text()).toContain('项目到期')
+    expect(wrapper.findAll('.today-reminders details').every(panel => panel.attributes('open') === undefined)).toBe(true)
+    await wrapper.get('input[placeholder="搜索任务"]').setValue('普通')
+    expect(wrapper.find('.today-reminders').exists()).toBe(false)
+    expect(wrapper.get('.today-other').text()).toContain('普通置顶')
+    wrapper.unmount()
+  })
+
+  it('arranges through the dedicated command and retains errors without hiding the task', async () => {
+    const task = makeTask()
+    const api = createApi([task])
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+    api.drafts = { get: vi.fn(async () => ({ generation: 'generation', revision: 0, record: null, baseUpdatedAt: task.updatedAt })) } as unknown as TodoApi['drafts']
+    api.tasks.arrange = vi.fn().mockRejectedValueOnce(new Error('该任务有未保存修改')).mockResolvedValueOnce({ ...task, plan: null, focusDate: null, dueDate: null })
+    await wrapper.get('.task-plan-button').trigger('click')
+    await flushPromises()
+    const unplanned = () => wrapper.findAll('.arrangement-options button').find(button => button.text() === '未安排')!
+    await unplanned().trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('未保存修改')
+    expect(wrapper.find('.today-other .task-row').exists()).toBe(true)
+    await unplanned().trigger('click')
+    await flushPromises()
+    expect(api.tasks.arrange).toHaveBeenLastCalledWith({ taskId: task.id, generation: 'generation', updatedAt: task.updatedAt, action: { kind: 'plan', target: null } })
+    expect(api.tasks.update).not.toHaveBeenCalled()
+    expect(wrapper.find('.arrangement-dialog').exists()).toBe(false)
+    expect(wrapper.find('.today-other .task-row').exists()).toBe(false)
+    expect(document.activeElement?.tagName).toBe('H1')
+    wrapper.unmount()
+  })
   beforeEach(() => {
     vi.restoreAllMocks()
   })

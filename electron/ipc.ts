@@ -16,6 +16,7 @@ export function registerIpcHandlers(repository: Repository, options: IpcOptions 
     const notify = (result: unknown) => {
       const domain = channel.split(':')[0]
       const operation = channel.split(':')[1]
+      if (channel === 'tasks:arrange' && (result as { updatedAt: string }).updatedAt === (args[0] as { updatedAt: string }).updatedAt) return result
       if (!['get', 'list', 'status', 'get-day', 'month', 'summary', 'export', 'import', 'search', 'action-links', 'task-facts'].includes(operation)) {
         const domains: DataDomain[] = domain === 'tasks' ? ['tasks'] : ['lists', 'tags', 'filters'].includes(domain) ? ['organization', 'tasks'] : domain === 'flow' ? (operation === 'create-action' ? ['tasks', 'flow'] : ['flow']) : domain === 'settings' ? ['settings'] : domain === 'drafts' && operation === 'commit' ? ['tasks', 'flow', 'organization'] : []
         if (domains.length) {

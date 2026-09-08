@@ -118,7 +118,7 @@ test('creates, completes and edits a task without console or page errors', async
   page.on('pageerror', (error) => errors.push(error.message))
 
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: '今天' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '今天', exact: true })).toBeVisible()
   await expect(page.getByText('验收初始任务')).toBeVisible()
 
   const quickInput = page.getByPlaceholder('添加一个任务，按 Enter 保存…')
@@ -444,7 +444,7 @@ test('renders the branded quick capture panel without overflow', async ({ page }
   expect(dimensions.bodyHeight).toBeLessThanOrEqual(dimensions.viewportHeight)
   await page.getByRole('textbox', { name: '快速捕获任务' }).fill('浏览器快速捕获 #验收')
   await page.getByRole('textbox', { name: '快速捕获任务' }).press('Enter')
-  await expect(page.getByText('已加入收集箱')).toBeVisible()
+  await expect(page.getByText('已保存到收集箱 · 未安排')).toBeVisible()
 })
 
 test('keeps unplanned custom-list tasks out of today', async ({ page }) => {

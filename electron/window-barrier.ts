@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import crypto from 'node:crypto'
+import type { LifecycleReason, LifecycleResume, TaskSynchronization } from '../src/shared/contracts'
 export class WindowBarrier {
   private busy = false
   get running(): boolean { return this.busy; }
@@ -26,7 +27,7 @@ export class WindowBarrier {
         pending.resolve()
     })
   }
-  async run<Result>(reason: 'backup' | 'import' | 'close', action: () => Promise<Result> | Result): Promise<Result> {
+  async run<Result>(reason: LifecycleReason, action: () => Promise<Result> | Result, synchronization?: { taskId: string; read: () => TaskSynchronization | undefined }): Promise<Result> {
     if (this.busy)
       throw new Error('正在保留草稿或恢复数据，请稍后重试')
     this.busy = true
@@ -37,7 +38,7 @@ export class WindowBarrier {
         const id = crypto.randomUUID()
         const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('窗口未能确认草稿已保留，请重试')); }, 10000)
         this.pending.set(id, { sender: window.webContents.id, resolve, reject, timer })
-        window.webContents.send('lifecycle:prepare', { id, reason })
+        window.webContents.send('lifecycle:prepare', { id, reason, ...(synchronization ? { taskId: synchronization.taskId } : {}) })
       })))
       this.locked = true
       const result = await action()
@@ -52,9 +53,13 @@ export class WindowBarrier {
       this.pending.clear()
       this.locked = false
       this.busy = false
+      const synchronizedTask = synchronization?.read()
+      const resume: LifecycleResume = { replaced, ...(synchronizedTask ? { synchronizedTask } : {}) }
       for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.isDestroyed())
-          window.webContents.send('lifecycle:resume', replaced)
+        if (!window.isDestroyed()) {
+          try { window.webContents.send('lifecycle:resume', resume) }
+          catch (error) { console.error('窗口恢复通知失败', error) }
+        }
       }
     }
   }

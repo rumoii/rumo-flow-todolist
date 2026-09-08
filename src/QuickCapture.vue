@@ -5,7 +5,8 @@ import QuickAddHints from './components/QuickAddHints.vue'
 import { createDraftCoordinator, draftCoordinatorKey } from './composables/draft-coordinator'
 import { parseQuickAdd } from './shared/quick-add'
 import { ensureTags } from './shared/tag-utils'
-import type { AppSettings, Tag, TaskList } from './shared/contracts'
+import type { AppSettings, Tag, Task, TaskList } from './shared/contracts'
+import { planLabel } from './shared/planning'
 
 const title = ref('')
 const drafts = inject(draftCoordinatorKey, null) ?? createDraftCoordinator(window.todoApi)
@@ -19,6 +20,7 @@ const tags = ref<Tag[]>([])
 const message = ref('')
 const messageKind = ref<'success' | 'error' | ''>('')
 const submitting = ref(false)
+const closing = ref(false)
 let closeTimer: number | undefined
 let removeSettingsListener: (() => void) | undefined
 
@@ -28,8 +30,11 @@ function applyTheme(settings: Pick<AppSettings, 'theme' | 'density'>) {
 }
 
 async function closeCapture() {
+  if (closing.value || submitting.value || drafts.paused.value || drafts.saving.value) return
   window.clearTimeout(closeTimer)
+  closing.value = true
   try { await drafts.flush(); window.close() } catch { message.value = '草稿保留失败，请重试后关闭'; messageKind.value = 'error' }
+  finally { closing.value = false }
 }
 
 async function refreshCapture() {
@@ -72,20 +77,20 @@ async function submit() {
   submitting.value = true
   try {
     if (drafts.supported) {
-      await drafts.commit('capture', 'global')
+      const task = await drafts.commit('capture', 'global') as Task
       title.value = ''
       await drafts.open('capture', 'global', { title: '' })
       messageKind.value = 'success'
-      message.value = '任务已保存'
+      message.value = savedDestination(task)
       window.clearTimeout(closeTimer)
       closeTimer = window.setTimeout(closeCapture, 720)
       return
     }
     const resolved = await ensureTags(window.todoApi, tags.value, parsed.tagNames)
-    await window.todoApi.tasks.create({ ...parsed.input, tagIds: resolved.tags.map(tag => tag.id) })
+    const task = await window.todoApi.tasks.create({ ...parsed.input, tagIds: resolved.tags.map(tag => tag.id) })
     title.value = ''
     messageKind.value = resolved.failed.length ? 'error' : 'success'
-    message.value = resolved.failed.length ? `任务已保存，标签创建失败：${resolved.failed.join('、')}` : '已加入收集箱'
+    message.value = resolved.failed.length ? `${savedDestination(task)}，标签创建失败：${resolved.failed.join('、')}` : savedDestination(task)
 
     if (!resolved.failed.length) {
       window.clearTimeout(closeTimer)
@@ -101,11 +106,14 @@ async function submit() {
   }
 }
 
+function savedDestination(task: Task) {
+  return `已保存到${lists.value.find(list => list.id === task.listId)?.name ?? '收集箱'} · ${planLabel(task.plan)}`
+}
 onBeforeUnmount(() => { window.clearTimeout(closeTimer); removeSettingsListener?.(); removeShownListener?.() })
 </script>
 
 <template>
-  <main class="capture-shell" :inert="drafts.paused.value || drafts.saving.value" @keydown.esc.prevent="closeCapture">
+  <main class="capture-shell" :inert="drafts.paused.value || drafts.saving.value || closing" @keydown.esc.prevent="closeCapture">
     <DraftStatus kind="capture" draft-key="global" @discard="discardCapture" />
     <section class="capture-card">
       <header class="capture-header">
@@ -113,10 +121,15 @@ onBeforeUnmount(() => { window.clearTimeout(closeTimer); removeSettingsListener?
           <img src="/favicon.svg" alt="Rumo-Flow" />
           <div>
             <strong>快速捕获</strong>
-            <span>把想法先记下来</span>
+            <span>把想法先记下来 · 默认未安排，稍后再规划</span>
           </div>
         </div>
-        <span class="capture-badge">RUMO-FLOW</span>
+        <div class="capture-header-actions">
+          <span class="capture-badge">RUMO-FLOW</span>
+          <button class="capture-close" aria-label="关闭快速捕获" title="关闭（Esc），保留未提交输入" :disabled="submitting || closing" @click="closeCapture">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          </button>
+        </div>
       </header>
 
       <QuickAddHints v-model="title" :tags="tags" :lists="lists" />
@@ -157,6 +170,11 @@ onBeforeUnmount(() => { window.clearTimeout(closeTimer); removeSettingsListener?
 .capture-brand strong { font-size: 14px; font-weight: 650; letter-spacing: .1px; }
 .capture-brand span { color:var(--capture-muted); font-size: 10px; }
 .capture-badge { padding: 4px 7px; border: 1px solid var(--capture-border); border-radius: 5px; color: #a99bf0; font-size: 8px; font-weight: 650; letter-spacing: 1px; }
+.capture-header-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.capture-close { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--capture-border); border-radius: 7px; color: var(--capture-muted); background: var(--capture-hint-bg); }
+.capture-close:hover { color: var(--capture-text); background: var(--capture-key-bg); }
+.capture-close:focus-visible { outline: 2px solid #856af9; outline-offset: 2px; }
+.capture-close:disabled { opacity: .45; cursor: not-allowed; }
 .capture-input-wrap { display: flex; align-items: center; gap: 9px; height: 46px; padding: 0 10px; border: 1px solid var(--capture-input-border); border-radius: 9px; background:var(--capture-input); box-shadow: inset 0 1px 2px rgba(0,0,0,.12); transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
 .capture-input-wrap:focus-within { border-color: #9b87ff; background:var(--capture-input-focus); box-shadow: 0 0 0 3px rgba(133,106,249,.16), inset 0 1px 2px rgba(0,0,0,.12); }
 .capture-input-wrap.has-message { border-color: rgba(42,188,128,.65); }

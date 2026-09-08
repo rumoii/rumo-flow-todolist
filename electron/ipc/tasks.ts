@@ -1,7 +1,19 @@
 import type { IpcContext } from './context'
 import { text, object, ids } from './validation'
-import type { CreateTaskInput, OrganizeTaskInput, TaskQuery, UpdateTaskInput, TaskBatchAction } from '../../src/shared/contracts'
+import type { ArrangeTaskInput, TaskSynchronization, CreateTaskInput, OrganizeTaskInput, TaskQuery, UpdateTaskInput, TaskBatchAction } from '../../src/shared/contracts'
 export function registerTasks({ repository, options, handle, changed }: IpcContext): void {
+  handle('tasks:arrange', async (_event, raw) => {
+    const input = object<ArrangeTaskInput>(raw, '任务安排')
+    text(input.taskId, '任务编号')
+    if (!options.barrier) throw new Error('窗口协调尚未就绪，请重启应用')
+    let synchronized: TaskSynchronization | undefined
+    return options.barrier.run('arrange', () => {
+      const snapshot = repository.drafts.get('task', input.taskId)
+      const task = repository.taskCommands.arrange(input)
+      synchronized = { task, snapshot: { ...snapshot, baseUpdatedAt: task.updatedAt } }
+      return task
+    }, { taskId: input.taskId, read: () => synchronized })
+  })
   handle('tasks:batch', (_event, taskIds, action) => changed(repository.taskCommands.batch(ids(taskIds, '任务'), object<TaskBatchAction>(action, '批量操作'))))
   handle('tasks:search', (_event, query) => repository.actions.search(query))
   handle('tasks:list', (_event, query) => repository.tasks.listTasks((query ?? {}) as TaskQuery))
