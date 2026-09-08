@@ -2,6 +2,9 @@
 import type { Task, TaskPriority } from '../../shared/contracts'
 import TaskPlanButton from './TaskPlanButton.vue'
 import { useWorkspaceContext } from './context'
+import TaskSelection from './TaskSelection.vue'
+import { injectBatchSelection } from './useBatchSelection'
+const batch = injectBatchSelection()
 defineProps<{
   task: Task
   reminder?: boolean
@@ -9,13 +12,14 @@ defineProps<{
 const { arrangement, lists, tags, activeView, openTaskMenuId, todayIso, selectTask, taskReorderEnabled, taskDropTargetId, setTaskPinned, setTaskPriority, startTaskDrag, endTaskDrag, dropTaskBefore, dateLabel, priorityLabel, priorityCode, priorityClass, filterByTag, toggleTask, closeMenus, toggleTaskMenu } = useWorkspaceContext()
 </script>
 <template>
-<div :data-task-id="task.id" :class="['task-row', { 'drag-target': taskDropTargetId === task.id }]" :draggable="taskReorderEnabled" @dragstart="startTaskDrag($event, task)" @dragend="endTaskDrag" @dragover.prevent="taskDropTargetId = task.id" @drop.stop="dropTaskBefore(task)">
-              <button :aria-label="task.status === 'completed' ? '恢复任务' : '完成任务'" class="check" :class="{ checked: task.status === 'completed' }" @click.stop="toggleTask(task)">{{ task.status === 'completed' ? '✓' : '' }}</button>
+<div :data-task-id="task.id" :class="['task-row', { 'drag-target': taskDropTargetId === task.id }]" :draggable="taskReorderEnabled && !batch?.active.value" @dragstart="!batch?.active.value && startTaskDrag($event, task)" @dragend="endTaskDrag" @dragover.prevent="!batch?.active.value && (taskDropTargetId = task.id)" @drop.stop="!batch?.active.value && dropTaskBefore(task)">
+<TaskSelection :task="task" />
+              <button :disabled="batch?.active.value" :aria-label="task.status === 'completed' ? '恢复任务' : '完成任务'" class="check" :class="{ checked: task.status === 'completed' }" @click.stop="toggleTask(task)">{{ task.status === 'completed' ? '✓' : '' }}</button>
 <div class="task-main" @click="selectTask(task)">
 <div class="task-title-line" role="button" tabindex="0" :aria-label="`打开任务 ${task.title}`" @keydown.enter.prevent.stop="selectTask(task)" @keydown.space.prevent.stop="selectTask(task)">
 <span :class="{ done: task.status === 'completed' }">{{ task.title }}</span>
 <span v-if="task.isPinned" class="pinned-task-mark">置顶</span>
-<span v-if="task.priority !== 'none'" :class="['priority-badge', priorityClass(task.priority)]" :title="priorityLabel(task.priority)">♨ {{ priorityCode(task.priority) }}</span>
+<span v-if="task.priority !== 'none'" :class="['priority-badge', priorityClass(task.priority)]" :title="`重要程度：${priorityLabel(task.priority)}`">{{ priorityCode(task.priority) }}</span>
 </div>
 <div class="task-meta">
 <TaskPlanButton :task="task" /><span v-if="task.focusDate && activeView !== 'today'">★ 当日重点</span>
@@ -29,13 +33,13 @@ const { arrangement, lists, tags, activeView, openTaskMenuId, todayIso, selectTa
 </div>
 </div>
 <button v-if="reminder" class="reminder-arrange" :disabled="arrangement.state.busy" @click.stop="arrangement.open(task, $event, { kind: 'plan', target: 'today' })">安排到今天</button>
-<button v-else-if="activeView === 'today' && task.status === 'active' && !task.parentTaskId" class="task-focus-button" :class="{ focused: task.focusDate === todayIso }" :aria-label="task.focusDate === todayIso ? `取消今日重点 ${task.title}` : `设为今日重点 ${task.title}`" :aria-pressed="task.focusDate === todayIso" :disabled="arrangement.state.busy" @click.stop="arrangement.open(task, $event, { kind: 'focus', enabled: task.focusDate !== todayIso })">{{ task.focusDate === todayIso ? '★' : '☆' }}</button>
+<button v-else-if="activeView === 'today' && task.status === 'active' && !task.parentTaskId" class="task-focus-button" title="今日重点：今天优先处理，不改变重要程度" :class="{ focused: task.focusDate === todayIso }" :aria-label="task.focusDate === todayIso ? `取消今日重点 ${task.title}` : `设为今日重点 ${task.title}`" :aria-pressed="task.focusDate === todayIso" :disabled="arrangement.state.busy" @click.stop="arrangement.open(task, $event, { kind: 'focus', enabled: task.focusDate !== todayIso })">{{ task.focusDate === todayIso ? '★' : '☆' }}</button>
 <div class="row-actions">
 <button class="icon-button" aria-label="任务操作" @click.stop="toggleTaskMenu(task.id)">···</button>
 <div v-if="openTaskMenuId === task.id" class="popup-menu task-popup" @click.stop>
 <button @click="setTaskPinned(task, !task.isPinned); closeMenus()">{{ task.isPinned ? '取消置顶' : '置顶任务' }}</button>
-<div class="menu-label">优先级</div>
-<button v-for="priority in (['high','medium','low','none'] as TaskPriority[])" :key="priority" :class="{ selected: task.priority === priority }" @click="setTaskPriority(task, priority)">{{ priority === 'none' ? '无优先级' : `${priorityCode(priority)} · ${priorityLabel(priority)}` }}</button>
+<div class="menu-label">重要程度</div>
+<button v-for="priority in (['high','medium','low','none'] as TaskPriority[])" :key="priority" :class="{ selected: task.priority === priority }" @click="setTaskPriority(task, priority)">{{ priority === 'none' ? '未设置' : priorityLabel(priority) }}</button>
 </div>
 </div>
             </div>

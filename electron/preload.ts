@@ -1,6 +1,20 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { LifecycleResume, TodoApi } from '../src/shared/contracts'
 const api: TodoApi = {
+  updates: {
+    status: () => ipcRenderer.invoke('updates:status'),
+    check: () => ipcRenderer.invoke('updates:check'),
+    download: () => ipcRenderer.invoke('updates:download'),
+    cancel: () => ipcRenderer.invoke('updates:cancel'),
+    install: () => ipcRenderer.invoke('updates:install'),
+    feedback: () => ipcRenderer.invoke('updates:feedback'),
+    copyInfo: () => ipcRenderer.invoke('updates:copy-info'),
+    onChanged: callback => {
+      const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]) => callback(state)
+      ipcRenderer.on('updates:changed', listener)
+      return () => ipcRenderer.removeListener('updates:changed', listener)
+    },
+  },
   drafts: {
     get: (kind, key) => ipcRenderer.invoke('drafts:get', kind, key),
     put: (input) => ipcRenderer.invoke('drafts:put', input),
@@ -23,7 +37,7 @@ const api: TodoApi = {
   },
   tasks: {
     arrange: (input) => ipcRenderer.invoke('tasks:arrange', input),
-    batch: (ids, action) => ipcRenderer.invoke('tasks:batch', ids, action),
+    batch: input => ipcRenderer.invoke('tasks:batch', input),
     search: (text) => ipcRenderer.invoke('tasks:search', text),
     list: (query) => ipcRenderer.invoke('tasks:list', query),
     create: (input) => ipcRenderer.invoke('tasks:create', input),
@@ -52,6 +66,7 @@ const api: TodoApi = {
     actionLinks: (source, taskId) => ipcRenderer.invoke('flow:action-links', source, taskId),
     taskFacts: (date) => ipcRenderer.invoke('flow:task-facts', date),
     getDay: (date) => ipcRenderer.invoke('flow:get-day', date),
+    history: (query) => ipcRenderer.invoke('flow:history', query),
     saveReview: (input) => ipcRenderer.invoke('flow:save-review', input),
     createVideo: (input) => ipcRenderer.invoke('flow:create-video', input),
     updateVideo: (id, input) => ipcRenderer.invoke('flow:update-video', id, input),

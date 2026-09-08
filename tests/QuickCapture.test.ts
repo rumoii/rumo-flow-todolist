@@ -11,7 +11,7 @@ function createApi(overrides: Partial<TodoApi> = {}): TodoApi {
     lists: { list: vi.fn(async () => []), create: vi.fn(), update: vi.fn(), remove: vi.fn(), reorder: vi.fn() },
     tags: { list: vi.fn(async () => []), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
     filters: { list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
-    settings: { get: vi.fn(async () => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })), update: vi.fn(), onChanged: vi.fn(() => () => undefined) },
+    settings: { get: vi.fn(async () => ({ automaticUpdateChecks: true, theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })), update: vi.fn(), onChanged: vi.fn(() => () => undefined) },
     desktop: { status: vi.fn(), openQuickCapture: vi.fn(), onFocusQuickAdd: vi.fn() },
     backup: { export: vi.fn(), import: vi.fn() },
     ...overrides,
@@ -51,7 +51,7 @@ describe('QuickCapture', () => {
     let changeTheme: ((settings: Awaited<ReturnType<TodoApi['settings']['get']>>) => void) | undefined
     const removeListener = vi.fn()
     const api = createApi()
-    api.settings.get = vi.fn(async () => ({ theme: 'dark', density: 'compact', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }))
+    api.settings.get = vi.fn(async () => ({ automaticUpdateChecks: true, theme: 'dark', density: 'compact', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }))
     api.settings.onChanged = vi.fn((callback) => { changeTheme = callback; return removeListener })
     window.todoApi = api
 
@@ -60,7 +60,7 @@ describe('QuickCapture', () => {
     expect(document.documentElement.dataset.theme).toBe('dark')
     expect(document.documentElement.dataset.density).toBe('compact')
 
-    changeTheme?.({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })
+    changeTheme?.({ automaticUpdateChecks: true, theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })
     expect(document.documentElement.dataset.theme).toBe('light')
     wrapper.unmount()
     expect(removeListener).toHaveBeenCalledOnce()
@@ -74,7 +74,7 @@ describe('QuickCapture', () => {
     expect(wrapper.text()).toContain('快速捕获')
     expect(wrapper.text()).toContain('把想法先记下来')
     expect(wrapper.text()).toContain('标签')
-    expect(wrapper.text()).toContain('优先级')
+    expect(wrapper.text()).toContain('重要程度')
     expect(wrapper.text()).toContain('日期')
     expect(wrapper.text()).toContain('清单')
   })

@@ -10,6 +10,7 @@ export class SettingsRepository {
 
   validateSettings(input: Partial<AppSettings>): AppSettings {
     const result = { ...this.getSettings(), ...input }
+    if (typeof result.automaticUpdateChecks !== 'boolean') throw new Error('设置无效：自动检查更新')
     if (!['light', 'dark'].includes(result.theme)) throw new Error('设置无效：界面主题')
     if (!['comfortable', 'compact'].includes(result.density)) throw new Error('设置无效：内容密度')
     if (typeof result.globalShortcut !== 'string' || !result.globalShortcut.trim()) throw new Error('设置无效：全局快捷键')

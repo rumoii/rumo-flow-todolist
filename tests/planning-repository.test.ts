@@ -10,8 +10,23 @@ vi.mock('electron', () => ({ app: { getPath: () => directory } }))
 const { Repository } = await import('../electron/database/repository')
 const { useDatabaseForTests, closeDatabase, getDatabase } = await import('../electron/database/db')
 let repository: InstanceType<typeof Repository>
+function batch(ids: string[], action: import('../src/shared/contracts').TaskBatchAction) {
+  return repository.taskCommands.batch({ targets: ids.map(id => ({ id, updatedAt: repository.tasks.getTask(id).updatedAt })), generation: repository.drafts.get('capture', 'global').generation, action })
+}
 beforeEach(() => { useDatabaseForTests(path.join(directory, `${crypto.randomUUID()}.sqlite`)); repository = new Repository() })
 afterAll(() => { closeDatabase(); fs.rmSync(directory, { recursive: true, force: true }) })
+
+it('persists update-check opt-out in v5 backups and validates boolean input', () => {
+  expect(repository.settings.getSettings().automaticUpdateChecks).toBe(true)
+  expect(() => repository.settings.updateSettings({ automaticUpdateChecks: 'yes' } as never)).toThrow('自动检查更新')
+  repository.settings.updateSettings({ automaticUpdateChecks: false })
+  const backup = repository.backup.exportBackup()
+  expect(backup.version).toBe(5)
+  expect(backup.settings.automaticUpdateChecks).toBe(false)
+  repository.settings.updateSettings({ automaticUpdateChecks: true })
+  repository.backup.importBackup(backup)
+  expect(repository.settings.getSettings().automaticUpdateChecks).toBe(false)
+})
 
 it('refines the same task without moving its deadline and generates unplanned recurrence', () => {
   const task = repository.tasks.createTask({ title: '月计划', dueDate: '2026-09-30', plan: planFor('month', '2026-09-07'), recurrence: { frequency: 'daily' } })
@@ -26,21 +41,21 @@ it('rolls back all batch writes and rejects malformed actions', () => {
   const first = repository.tasks.createTask({ title: '一' })
   const second = repository.tasks.createTask({ title: '二' })
   getDatabase().exec(`CREATE TRIGGER fail_second BEFORE UPDATE ON tasks WHEN OLD.id='${second.id}' BEGIN SELECT RAISE(ABORT, 'forced failure'); END`)
-  expect(() => repository.taskCommands.batch([first.id, second.id], { kind: 'plan', plan: planFor('day', '2026-09-07') })).toThrow('forced failure')
+  expect(() => batch([first.id, second.id], { kind: 'plan', plan: planFor('day', '2026-09-07') })).toThrow('forced failure')
   expect(repository.tasks.getTask(first.id).plan).toBeNull()
-  expect(() => repository.taskCommands.batch([first.id], { kind: 'plan' } as never)).toThrow()
-  expect(() => repository.taskCommands.batch([first.id], { kind: 'move' } as never)).toThrow()
+  expect(() => batch([first.id], { kind: 'plan' } as never)).toThrow()
+  expect(() => batch([first.id], { kind: 'move' } as never)).toThrow()
 })
 it('applies batch lists, tags and deadlines to unique tasks and completes once', () => {
   const task = repository.tasks.createTask({ title: '批量任务', dueDate: '2026-09-07', dueTime: '12:00', reminderMinutesBefore: 5, recurrence: { frequency: 'daily' } })
   const list = repository.organization.createList({ name: '工作' })
   const tag = repository.organization.createTag({ name: '重点' })
-  repository.taskCommands.batch([task.id], { kind: 'move', listId: list.id })
-  repository.taskCommands.batch([task.id, task.id], { kind: 'tags', tagIds: [tag.id] })
-  repository.taskCommands.batch([task.id], { kind: 'deadline', date: null })
+  batch([task.id], { kind: 'move', listId: list.id })
+  batch([task.id, task.id], { kind: 'tags', tagIds: [tag.id] })
+  batch([task.id], { kind: 'deadline', date: null })
   expect(repository.tasks.getTask(task.id)).toMatchObject({ listId: list.id, dueDate: null, dueTime: null, reminderMinutesBefore: null, tags: [{ id: tag.id }] })
-  repository.taskCommands.batch([task.id], { kind: 'deadline', date: '2026-09-08' })
-  repository.taskCommands.batch([task.id, task.id], { kind: 'complete' })
+  batch([task.id], { kind: 'deadline', date: '2026-09-08' })
+  batch([task.id, task.id], { kind: 'complete' })
   expect(repository.tasks.listTasks()).toHaveLength(2)
 })
 it('rejects a video version changed in the same millisecond', () => {
@@ -49,15 +64,16 @@ it('rejects a video version changed in the same millisecond', () => {
   expect(changed.updatedAt).not.toBe(video.updatedAt)
   expect(() => repository.actions.create({ requestId: crypto.randomUUID(), source: { kind: 'video', key: video.id }, sourceUpdatedAt: video.updatedAt, task: { title: '旧正文行动' } })).toThrow('已变化')
 })
-it('detects a stale task draft after a plan update under a fixed clock', () => {
+it('rejects batch plans with a pending draft and preserves both records under a fixed clock', () => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-07T12:00:00'))
   try {
     const task = repository.tasks.createTask({ title: '原任务' })
     const snapshot = repository.drafts.get('task', task.id)
     const saved = repository.drafts.put({ ...snapshot, kind: 'task', key: task.id, payload: { ...taskToDraft(task), title: '未保存标题' } })
-    repository.taskCommands.batch([task.id], { kind: 'plan', plan: planFor('week', '2026-09-07') })
-    expect(() => repository.drafts.commit({ ...saved, kind: 'task', key: task.id })).toThrow('已变化')
-    expect(repository.tasks.getTask(task.id).plan).toEqual(planFor('week', '2026-09-07'))
+    expect(() => batch([task.id], { kind: 'plan', plan: planFor('week', '2026-09-07') })).toThrow('未保存修改')
+    expect(repository.tasks.getTask(task.id).plan).toBeNull()
+    expect(repository.drafts.get('task', task.id)).toEqual(saved)
+    expect(() => repository.drafts.commit({ ...saved, kind: 'task', key: task.id })).not.toThrow()
   } finally { vi.useRealTimers() }
 })
 it('deduplicates overlapping deletion roots and recovers only same-operation children', () => {
@@ -65,7 +81,7 @@ it('deduplicates overlapping deletion roots and recovers only same-operation chi
   const old = repository.tasks.createTask({ title: '先删', parentTaskId: parent.id })
   const child = repository.tasks.createTask({ title: '同删', parentTaskId: parent.id })
   repository.tasks.removeTask(old.id)
-  repository.taskCommands.batch([child.id, parent.id, child.id], { kind: 'remove' })
+  batch([child.id, parent.id, child.id], { kind: 'remove' })
   expect(repository.tasks.getTask(child.id).deletionBatch).toBe(repository.tasks.getTask(parent.id).deletionBatch)
   repository.tasks.recoverTask(parent.id)
   expect(repository.tasks.getTask(child.id).deletedAt).toBeNull()
@@ -89,7 +105,7 @@ it('recovers explicitly selected descendants after parents without detaching the
   repository.tasks.removeTask(child.id)
   repository.tasks.removeTask(parent.id)
   repository.organization.removeList(list.id)
-  repository.taskCommands.batch([child.id, parent.id], { kind: 'recover' })
+  batch([child.id, parent.id], { kind: 'recover' })
   expect(repository.tasks.getTask(child.id)).toMatchObject({ parentTaskId: parent.id, listId: null, deletedAt: null })
 })
 it('keeps source links out of recurring instances and retains a tombstone after task purge', () => {
@@ -99,7 +115,7 @@ it('keeps source links out of recurring instances and retains a tombstone after 
   const next = repository.tasks.listTasks().find(item => item.generatedFromTaskId === task.id)!
   expect(repository.actions.related(undefined, next.id)).toEqual([])
   repository.tasks.removeTask(task.id)
-  repository.taskCommands.batch([task.id], { kind: 'purge' })
+  batch([task.id], { kind: 'purge' })
   expect(repository.actions.related()[0]).toMatchObject({ taskId: null, task: null, sourceDeleted: false })
 })
 it('rolls migration DDL back if the final schema-version write fails', async () => {

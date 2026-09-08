@@ -27,6 +27,8 @@ const emit = defineEmits<{
 
 const root = ref<HTMLElement | null>(null)
 const trigger = ref<HTMLButtonElement | null>(null)
+const menu = ref<HTMLElement | null>(null)
+const menuStyle = ref<Record<string, string>>({})
 const open = ref(false)
 const openUpwards = ref(false)
 const activeIndex = ref(-1)
@@ -52,7 +54,7 @@ function moveActive(direction: 1 | -1) {
     index = (index + direction + props.options.length) % props.options.length
     if (!props.options[index].disabled) {
       activeIndex.value = index
-      nextTick(() => document.getElementById(activeOptionId.value || '')?.scrollIntoView?.({ block: 'nearest' }))
+      nextTick(scrollActive)
       return
     }
   }
@@ -61,12 +63,26 @@ function moveActive(direction: 1 | -1) {
 async function openMenu() {
   if (props.disabled || open.value) return
   activeIndex.value = selectedIndex.value >= 0 && !props.options[selectedIndex.value]?.disabled ? selectedIndex.value : firstEnabledIndex()
-  const rect = root.value?.getBoundingClientRect()
-  const estimatedHeight = Math.min(248, props.options.length * 38 + 12)
-  openUpwards.value = !!rect && window.innerHeight - rect.bottom < estimatedHeight && rect.top > window.innerHeight - rect.bottom
+  positionMenu()
   open.value = true
   await nextTick()
-  document.getElementById(activeOptionId.value || '')?.scrollIntoView?.({ block: 'nearest' })
+  scrollActive()
+}
+
+function positionMenu() {
+  const rect = trigger.value?.getBoundingClientRect()
+  const estimatedHeight = Math.min(248, props.options.length * 38 + 12)
+  openUpwards.value = !!rect && window.innerHeight - rect.bottom < estimatedHeight && rect.top > window.innerHeight - rect.bottom
+  if (rect) menuStyle.value = { position: 'fixed', left: `${rect.left}px`, width: `${rect.width}px`, top: openUpwards.value ? 'auto' : `${rect.bottom + 6}px`, bottom: openUpwards.value ? `${window.innerHeight - rect.top + 6}px` : 'auto', zIndex: '150', maxHeight: `${Math.max(80, Math.min(248, (openUpwards.value ? rect.top : window.innerHeight - rect.bottom) - 12))}px` }
+}
+
+function scrollActive() {
+  const option = document.getElementById(activeOptionId.value || '')
+  if (!option || !menu.value) return
+  const top = option.offsetTop
+  const bottom = top + option.offsetHeight
+  if (top < menu.value.scrollTop) menu.value.scrollTop = top
+  else if (bottom > menu.value.scrollTop + menu.value.clientHeight) menu.value.scrollTop = bottom - menu.value.clientHeight
 }
 
 function closeMenu(restoreFocus = false) {
@@ -107,6 +123,7 @@ function onKeydown(event: KeyboardEvent) {
     if (!open.value) return
     event.preventDefault()
     activeIndex.value = event.key === 'Home' ? firstEnabledIndex() : lastEnabledIndex()
+    nextTick(scrollActive)
     return
   }
   if (event.key === 'Enter' || event.key === ' ') {
@@ -120,8 +137,8 @@ function onDocumentPointerDown(event: PointerEvent) {
   if (open.value && !root.value?.contains(event.target as Node)) closeMenu()
 }
 
-function onWindowChange() {
-  closeMenu()
+function onWindowChange(event: Event) {
+  if (open.value && event.target !== menu.value) positionMenu()
 }
 
 onMounted(() => {
@@ -156,7 +173,7 @@ onBeforeUnmount(() => {
       <span class="select-field__caret" aria-hidden="true"></span>
     </button>
     <Transition name="select-pop">
-      <ul v-if="open" :id="listboxId" class="select-field__menu" role="listbox" :aria-label="ariaLabel" @click.stop>
+      <ul v-if="open" ref="menu" :id="listboxId" :style="menuStyle" class="select-field__menu" role="listbox" :aria-label="ariaLabel" @click.stop>
         <li
           v-for="(option, index) in options"
           :id="`${listboxId}-option-${index}`"

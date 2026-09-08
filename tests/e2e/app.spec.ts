@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
     const tasks = [{ plan: { kind: 'day', start: today }, focusDate: null, deletionBatch: null, id: 'seed-task', title: '验收初始任务', listId: 'list-work', dueDate: today, dueTime: null, reminderMinutesBefore: null, priority: 'high', notes: '浏览器验收', status: 'active', sortOrder: 0, isPinned: false, parentTaskId: null, recurrenceRuleId: null, deletedAt: null, tags: [], createdAt: timestamp, updatedAt: timestamp, completedAt: null }]
     const flowReview = { date: today, videoLimit: 3, didWell: '', didNotWell: '', reflection: '', inputType: 'none', inputVideoId: null, inputText: '', outputText: '', tomorrowExpectation: '', savedAt: null as string | null, createdAt: timestamp, updatedAt: timestamp }
     const flowVideos: Array<{ id: string; date: string; title: string; sourceUrl: string; sourcePlatform: string; author: string; thought: string; createdAt: string; updatedAt: string }> = []
-    const appSettings = { theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
+    const appSettings = { automaticUpdateChecks: true, theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
     const byId = (id: string) => tasks.find((task) => task.id === id)
 
     Object.defineProperty(window, 'todoApi', {
@@ -298,8 +298,8 @@ test('pins tasks, changes priority and exposes subtasks near the top of details'
   await expect(page.locator('.pinned-zone').getByText('验收初始任务')).toBeVisible()
 
   await page.locator('.pinned-zone').getByRole('button', { name: '任务操作' }).click()
-  await page.getByRole('button', { name: /P3/ }).click()
-  await expect(page.locator('.pinned-zone').getByText('P3')).toBeVisible()
+  await page.getByRole('button', { name: '低', exact: true }).click()
+  await expect(page.locator('.pinned-zone').getByText('低')).toBeVisible()
 
   await page.locator('.pinned-zone').locator('.task-main').filter({ hasText: '验收初始任务' }).click()
   const subtaskComposer = page.getByPlaceholder('添加子任务…')
@@ -374,10 +374,10 @@ test('uses unified motion tokens and honors reduced-motion preferences', async (
 test('shows a readable saved-filter form and restrained select motion', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '新建筛选' }).click()
-  await expect(page.locator('.filter-field-row>span')).toHaveText(['状态', '清单', '优先级', '标签', '日期'])
+  await expect(page.locator('.filter-field-row>span')).toHaveText(['状态', '清单', '重要程度', '标签', '日期'])
   await expect(page.getByRole('combobox', { name: '筛选状态' })).toContainText('进行中')
   await expect(page.getByRole('combobox', { name: '筛选清单' })).toContainText('任意清单')
-  await expect(page.getByRole('combobox', { name: '筛选优先级' })).toContainText('任意优先级')
+  await expect(page.getByRole('combobox', { name: '筛选重要程度' })).toContainText('任意重要程度')
   await expect(page.getByRole('combobox', { name: '筛选标签' })).toContainText('任意标签')
   await expect(page.getByRole('combobox', { name: '筛选日期' })).toContainText('任意日期')
 

@@ -129,8 +129,8 @@ function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = [], seedFilter
       import: vi.fn(),
     },
     settings: {
-      get: vi.fn(async () => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })),
-      update: vi.fn(async (input) => ({ theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00', ...input })),
+      get: vi.fn(async () => ({ automaticUpdateChecks: true, theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })),
+      update: vi.fn(async (input) => ({ automaticUpdateChecks: true, theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00', ...input })),
       onChanged: vi.fn(() => () => undefined),
     },
     desktop: {
@@ -203,7 +203,7 @@ describe('App critical interactions', () => {
 
   it('applies the loaded theme and saves an immediately visible theme change', async () => {
     const api = createApi([])
-    api.settings.get = vi.fn(async () => ({ theme: 'dark', density: 'compact', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }))
+    api.settings.get = vi.fn(async () => ({ automaticUpdateChecks: true, theme: 'dark', density: 'compact', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }))
     window.todoApi = api
     const wrapper = mount(App)
     await flushPromises()
@@ -286,8 +286,8 @@ describe('App critical interactions', () => {
     await wrapper.get('[aria-label="新建筛选"]').trigger('click')
     expect(wrapper.find('.filter-composer-motion').exists()).toBe(true)
     expect(wrapper.findAll('.filter-composer-motion [role="combobox"]')).toHaveLength(5)
-    expect(wrapper.findAll('.filter-field-row>span').map(label => label.text())).toEqual(['状态', '清单', '优先级', '标签', '日期'])
-    expect(wrapper.findAll('.filter-field-row .select-field__value').map(value => value.text())).toEqual(['进行中', '任意清单', '任意优先级', '任意标签', '任意日期'])
+    expect(wrapper.findAll('.filter-field-row>span').map(label => label.text())).toEqual(['状态', '清单', '重要程度', '标签', '日期'])
+    expect(wrapper.findAll('.filter-field-row .select-field__value').map(value => value.text())).toEqual(['进行中', '任意清单', '任意重要程度', '任意标签', '任意日期'])
     await wrapper.get('[aria-label="新建筛选"]').trigger('click')
     expect(wrapper.find('.filter-composer-motion').exists()).toBe(false)
   })
@@ -360,7 +360,7 @@ describe('App critical interactions', () => {
 
   it('shows completed tasks and a filter-specific empty state in saved filters', async () => {
     const completedFilter: SavedFilter = { id: 'filter-completed', name: '仅看已完成', criteria: { status: 'completed' }, sortOrder: 0, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }
-    const emptyFilter: SavedFilter = { id: 'filter-empty', name: '仅看高优先级', criteria: { priorities: ['high'] }, sortOrder: 1, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }
+    const emptyFilter: SavedFilter = { id: 'filter-empty', name: '仅看高重要程度', criteria: { priorities: ['high'] }, sortOrder: 1, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }
     const api = createApi([makeTask({ status: 'completed', title: '完成项' }), makeTask({ id: 'task-2', title: '进行中' })], [], [completedFilter, emptyFilter])
     window.todoApi = api
     const wrapper = mount(App)
@@ -372,7 +372,7 @@ describe('App critical interactions', () => {
     expect(wrapper.find('.saved-filter-row .list-name').text()).toBe('仅看已完成')
 
     await wrapper.findAll('.saved-filter-row .nav-item')[1].trigger('click')
-    expect(wrapper.text()).toContain('“仅看高优先级”暂无匹配任务')
+    expect(wrapper.text()).toContain('“仅看高重要程度”暂无匹配任务')
     expect(wrapper.text()).not.toContain('添加第一项任务')
   })
 
@@ -421,11 +421,11 @@ describe('App critical interactions', () => {
     expect(wrapper.text()).toContain('置顶')
 
     await wrapper.find('.task-row .icon-button').trigger('click')
-    const priorityButton = wrapper.findAll('.task-popup button').find((button) => button.text().includes('P1'))
+    const priorityButton = wrapper.findAll('.task-popup button').find((button) => button.text().includes('高'))
     await priorityButton!.trigger('click')
     await flushPromises()
     expect(api.tasks.organize).toHaveBeenLastCalledWith('task-1', expect.objectContaining({ isPinned: true, priority: 'high', orderedIds: ['task-1'] }))
-    expect(wrapper.text()).toContain('P1')
+    expect(wrapper.text()).toContain('高')
   })
 
   it('pins a list and deletes it with the selected task policy', async () => {

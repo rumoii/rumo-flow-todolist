@@ -10,6 +10,8 @@ import { DesktopController } from './desktop'
 import { ReminderScheduler } from './reminders'
 import { loadWindowState, trackWindowState } from './window-state'
 import { titleBarAppearance } from './window-appearance'
+import updaterPackage from 'electron-updater'
+import { UpdateService } from './updates'
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 const userDataOverride = app.commandLine.getSwitchValue('user-data-dir')
 if (userDataOverride) {
@@ -26,6 +28,13 @@ const windowIconPath = app.isPackaged ? path.join(process.resourcesPath, 'icon.i
 let mainWindow: BrowserWindow | undefined
 let desktop: DesktopController | undefined
 let reminderScheduler: ReminderScheduler | undefined
+let updates: UpdateService | undefined
+function disposeServices() {
+  updates?.dispose()
+  reminderScheduler?.dispose()
+  desktop?.dispose()
+  closeDatabase()
+}
 function createWindow(): BrowserWindow {
   const state = loadWindowState()
   const theme = new Repository().settings.getSettings().theme
@@ -89,7 +98,35 @@ if (primaryInstance)
     desktop.start(repository.settings.getSettings().globalShortcut)
     reminderScheduler = new ReminderScheduler(repository, (taskId) => desktop?.showMain(taskId), () => desktop?.showFlow())
     let appliedSettings = repository.settings.getSettings()
-    registerIpcHandlers(repository, { barrier, confirmImport: async () => (await dialog.showMessageBox({ type: 'warning', message: '恢复备份会替换全部正式数据和草稿', detail: '恢复前会自动保留当前快照。仅支持 v5 备份，计划、行动来源、回收站和草稿将一起恢复。', buttons: ['取消', '恢复备份'], defaultId: 0, cancelId: 0 })).response === 1, onDataChanged: domains => { for (const window of BrowserWindow.getAllWindows())
+    let installingUpdate = false
+    const cancelInstallation = () => {
+      if (!installingUpdate) return
+      installingUpdate = false
+      allowQuit = false
+      quitPending = false
+      barrier.release()
+    }
+    const version = app.isPackaged ? app.getVersion() : JSON.parse(fs.readFileSync(path.join(currentDirectory, '../../package.json'), 'utf8')).version as string
+    updates = new UpdateService(updaterPackage.autoUpdater, { version, platform: process.platform, arch: process.arch }, {
+      supported: app.isPackaged && process.platform === 'win32' && process.arch === 'x64',
+      changed: state => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) {
+            try { window.webContents.send('updates:changed', state) }
+            catch (error) { console.error('更新状态通知失败', error) }
+          }
+        }
+      },
+      install: async trigger => {
+        if (quitPending || barrier.running) throw new Error('正在保存或恢复数据，请稍后安装')
+        installingUpdate = true
+        quitPending = true
+        await barrier.run('update', () => { allowQuit = true; trigger() }, { hold: true })
+      },
+      installFailed: cancelInstallation,
+    })
+    updates.setAutomatic(appliedSettings.automaticUpdateChecks)
+    registerIpcHandlers(repository, { barrier, updates, confirmImport: async () => (await dialog.showMessageBox({ type: 'warning', message: '恢复备份会替换全部正式数据和草稿', detail: '恢复前会自动保留当前快照。仅支持 v5 备份，计划、行动来源、回收站和草稿将一起恢复。', buttons: ['取消', '恢复备份'], defaultId: 0, cancelId: 0 })).response === 1, onDataChanged: domains => { for (const window of BrowserWindow.getAllWindows())
         if (!window.isDestroyed())
           window.webContents.send('desktop:data-changed', domains); }, onTasksChanged: () => reminderScheduler?.reschedule(), onScheduleChanged: () => reminderScheduler?.reschedule(), openQuickCapture: () => desktop?.showCapture(), desktopStatus: () => ({ globalShortcut: desktop?.shortcut ?? repository.settings.getSettings().globalShortcut, globalShortcutRegistered: desktop?.shortcutRegistered ?? false }), onSettingsChanging: (next, current) => { if (next.globalShortcut === current.globalShortcut)
         return; if (!desktop?.registerShortcut(next.globalShortcut))
@@ -102,7 +139,8 @@ if (primaryInstance)
 app.on('window-all-closed', () => { })
 app.on('second-instance', () => { desktop?.showMain(); })
 app.on('before-quit', (event) => {
-  if (!primaryInstance || allowQuit)
+  if (allowQuit) { disposeServices(); return }
+  if (!primaryInstance)
     return
   event.preventDefault()
   if (quitPending || barrier.running)
@@ -116,9 +154,6 @@ app.on('before-quit', (event) => {
     if (!quit)
       return
     allowQuit = true
-    reminderScheduler?.dispose()
-    desktop?.dispose()
-    closeDatabase()
     app.quit()
   })
 })

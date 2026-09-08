@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useWorkspaceContext } from './context'
+import UpdatePanel from './UpdatePanel.vue'
+import { useUpdates } from './useUpdates'
+const updates = useUpdates()
 const { settings, desktopStatus, settingsOpen, settingsSaving, exportBackup, importBackup, saveSettings, shortcutsOpen, trapDialogFocus } = useWorkspaceContext()
 const section = ref('appearance')
-const sections = [{ id: 'appearance', label: '外观', icon: '◐' }, { id: 'shortcuts', label: '快捷键', icon: '⌘' }, { id: 'data', label: '数据与备份', icon: '▤' }]
+const sections = [{ id: 'appearance', label: '外观', icon: '◐' }, { id: 'shortcuts', label: '快捷键', icon: '⌘' }, { id: 'data', label: '数据与备份', icon: '▤' }, { id: 'updates', label: '更新与关于', icon: '↻' }]
 </script>
 
 <template>
+  <button v-if="!settingsOpen && ['available', 'downloaded'].includes(updates.state.value.phase)" class="update-notice secondary-button" @click="section = 'updates'; settingsOpen = true">{{ updates.state.value.phase === 'downloaded' ? '更新已下载' : '发现新版' }} · 查看</button>
   <Transition name="dialog">
     <div v-if="settingsOpen" class="dialog-backdrop" @click.self="settingsOpen = false" @keydown="trapDialogFocus">
       <section class="settings-dialog preferences-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1">
@@ -28,7 +32,8 @@ const sections = [{ id: 'appearance', label: '外观', icon: '◐' }, { id: 'sho
               <h3>快捷键</h3><p class="preferences-description">随时记下想法，不打断正在进行的事情。</p>
               <div class="preference-card"><h4>全局快速捕获</h4><kbd>{{ desktopStatus.globalShortcut }}</kbd><p>{{ desktopStatus.globalShortcutRegistered ? '快捷键已启用' : '注册失败，请检查是否被其他应用占用' }}</p><button class="secondary-button" @click="shortcutsOpen = true">快捷键帮助</button></div>
             </template>
-            <template v-else>
+            <UpdatePanel v-else-if="section === 'updates'" :state="updates.state.value" :status="updates.status.value" :message="updates.message.value" @action="updates.run" />
+            <template v-else-if="section === 'data'">
               <h3>数据与备份</h3><p class="preferences-description">数据仅保存在当前设备。</p>
               <div class="preference-card"><h4>导出数据备份</h4><p>将正式数据和未完成草稿保存为 v5 JSON 备份。</p><button class="secondary-button" @click="exportBackup">导出备份</button></div>
               <div class="preference-card"><h4>从备份恢复</h4><p>替换正式数据与草稿前，自动保留当前快照。仅支持 v5 备份，包含计划、行动来源和回收站。</p><button class="secondary-button" @click="importBackup">选择文件</button></div>

@@ -32,14 +32,15 @@ export function useDetails({ tasks, tags, drafts, notify, closeMenus, hasApi, ma
     endDate: string
   }>()
   const activeTask = computed(() => tasks.value.find(task => task.id === selectedTaskId.value) || null)
-  watch(drafts.synchronizedTask, sync => {
-    if (!sync) return
-    const task = tasks.value.find(item => item.id === sync.task.id)
-    if (task) Object.assign(task, sync.task)
-    if (selectedTaskId.value === sync.task.id) {
-      hydratingDetail = true
-      detailDraft.value = taskToDraft(sync.task)
-      hydratingDetail = false
+  watch(drafts.synchronizedTasks, values => {
+    for (const sync of values) {
+      const task = tasks.value.find(item => item.id === sync.task.id)
+      if (task) Object.assign(task, sync.task)
+      if (selectedTaskId.value === sync.task.id) {
+        hydratingDetail = true
+        detailDraft.value = taskToDraft(sync.task)
+        hydratingDetail = false
+      }
     }
   }, { flush: 'sync' })
   const subtasks = computed(() => activeTask.value ? tasks.value.filter(task => task.parentTaskId === activeTask.value!.id).sort((a, b) => a.sortOrder - b.sortOrder) : [])

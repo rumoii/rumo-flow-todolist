@@ -9,6 +9,7 @@ import { registerDrafts } from './ipc/drafts'
 import { registerSettings } from './ipc/settings'
 import { registerBackup } from './ipc/backup'
 import { registerDesktop } from './ipc/desktop'
+import { registerUpdates } from './ipc/updates'
 export function registerIpcHandlers(repository: Repository, options: IpcOptions = {}): void {
   const handle: typeof ipcMain.handle = (channel, listener) => ipcMain.handle(channel, (event, ...args) => {
     if (options.barrier?.locked)
@@ -17,7 +18,7 @@ export function registerIpcHandlers(repository: Repository, options: IpcOptions 
       const domain = channel.split(':')[0]
       const operation = channel.split(':')[1]
       if (channel === 'tasks:arrange' && (result as { updatedAt: string }).updatedAt === (args[0] as { updatedAt: string }).updatedAt) return result
-      if (!['get', 'list', 'status', 'get-day', 'month', 'summary', 'export', 'import', 'search', 'action-links', 'task-facts'].includes(operation)) {
+      if (!['get', 'list', 'status', 'get-day', 'history', 'month', 'summary', 'export', 'import', 'search', 'action-links', 'task-facts'].includes(operation)) {
         const domains: DataDomain[] = domain === 'tasks' ? ['tasks'] : ['lists', 'tags', 'filters'].includes(domain) ? ['organization', 'tasks'] : domain === 'flow' ? (operation === 'create-action' ? ['tasks', 'flow'] : ['flow']) : domain === 'settings' ? ['settings'] : domain === 'drafts' && operation === 'commit' ? ['tasks', 'flow', 'organization'] : []
         if (domains.length) {
           try { options.onDataChanged?.(domains) }
@@ -29,7 +30,11 @@ export function registerIpcHandlers(repository: Repository, options: IpcOptions 
     const result = listener(event, ...args)
     return result instanceof Promise ? result.then(notify) : notify(result)
   })
-  const changed = <T>(value: T): T => { options.onTasksChanged?.(); return value; }
+  const changed = <T>(value: T): T => {
+    try { options.onTasksChanged?.() }
+    catch (error) { console.error('任务已保存，但提醒同步失败', error) }
+    return value
+  }
   const context = { repository, options, handle, changed }
   registerTasks(context)
   registerOrganization(context)
@@ -38,4 +43,5 @@ export function registerIpcHandlers(repository: Repository, options: IpcOptions 
   registerSettings(context)
   registerBackup(context)
   registerDesktop(context)
+  registerUpdates(context)
 }

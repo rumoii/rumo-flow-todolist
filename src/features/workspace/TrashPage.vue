@@ -6,19 +6,28 @@ const selected = ref<string[]>([])
 const error = ref('')
 const busy = ref(false)
 const confirm = ref(false)
+const generation = ref('')
 watch(selected, () => { confirm.value = false }, { deep: true })
 let sequence = 0
 let unsubscribe: (() => void) | undefined
 async function load() {
   const request = ++sequence
-  try { const result = await window.todoApi.tasks.list({ includeDeleted: true }); if (request !== sequence) return; tasks.value = result.filter(task => task.deletedAt); selected.value = selected.value.filter(id => tasks.value.some(task => task.id === id)) }
+  try {
+    const snapshot = await window.todoApi.drafts.get('capture', 'global')
+    const result = await window.todoApi.tasks.list({ includeDeleted: true })
+    if (request !== sequence) return
+    if (generation.value !== snapshot.generation) selected.value = []
+    generation.value = snapshot.generation
+    tasks.value = result.filter(task => task.deletedAt)
+    selected.value = selected.value.filter(id => tasks.value.some(task => task.id === id))
+  }
   catch { if (request === sequence) error.value = '回收站加载失败，请重试' }
 }
 async function apply(kind: 'recover' | 'purge') {
   if (busy.value) return
   if (kind === 'purge' && !confirm.value) { confirm.value = true; return }
   busy.value = true; error.value = ''
-  try { await window.todoApi.tasks.batch([...selected.value], { kind }); selected.value = []; confirm.value = false; await load() }
+  try { await window.todoApi.tasks.batch({ targets: tasks.value.filter(task => selected.value.includes(task.id)).map(({ id, updatedAt }) => ({ id, updatedAt })), generation: generation.value, action: { kind } }); selected.value = []; confirm.value = false; await load() }
   catch (cause) { error.value = cause instanceof Error ? cause.message : '操作失败' }
   finally { busy.value = false }
 }

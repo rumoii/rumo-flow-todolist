@@ -2,7 +2,9 @@ import type { ipcMain } from 'electron'
 import type { Repository } from '../database/repository'
 import type { WindowBarrier } from '../window-barrier'
 import type { AppSettings, DataDomain } from '../../src/shared/contracts'
+import type { UpdateService } from '../updates'
 export type IpcOptions = {
+  updates?: UpdateService
   barrier?: WindowBarrier
   onDataChanged?: (domains: DataDomain[]) => void
   confirmImport?: () => Promise<boolean>

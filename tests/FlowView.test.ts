@@ -34,6 +34,39 @@ function createFlowApi(seed: VideoReflection[] = []) {
 }
 
 describe('FlowView', () => {
+  it('keeps the original day and draft when backfill loading fails', async () => {
+    const { api } = createFlowApi()
+    Object.defineProperty(window, 'todoApi', { configurable: true, value: api })
+    const wrapper = mount(FlowView, { props: { todayCompletedCount: 0, todayPendingCount: 0 }, global: { provide: { [draftCoordinatorKey as symbol]: createDraftCoordinator(api), [navigationKey as symbol]: { flowTarget: ref(null), openTask: vi.fn(), openFlow: vi.fn() } } } })
+    await flushPromises()
+    await wrapper.find('#flow-tab-review').trigger('click')
+    await flushPromises()
+    await wrapper.get('[placeholder="哪件事值得肯定？"]').setValue('不要丢失今天的输入')
+    vi.mocked(api.flow.getDay).mockRejectedValueOnce(new Error('read failed'))
+    await wrapper.findAll('button').find(button => button.text() === '补记往日')!.trigger('click')
+    await wrapper.get('[aria-label="补录日期"]').setValue('2020-02-03')
+    await wrapper.get('.backfill-form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('心流记录加载失败')
+    expect((wrapper.get('[placeholder="哪件事值得肯定？"]').element as HTMLTextAreaElement).value).toBe('不要丢失今天的输入')
+    await wrapper.findAll('button').find(button => button.text() === '保存今日复盘')!.trigger('click')
+    await flushPromises()
+    expect(api.flow.saveReview).toHaveBeenCalledWith(expect.objectContaining({ date: date(), didWell: '不要丢失今天的输入' }))
+    wrapper.unmount()
+  })
+  it('does not leave the editor when retaining its draft fails', async () => {
+    const { api } = createFlowApi()
+    Object.defineProperty(window, 'todoApi', { configurable: true, value: api })
+    const coordinator = createDraftCoordinator(api)
+    const wrapper = mount(FlowView, { props: { todayCompletedCount: 0, todayPendingCount: 0 }, global: { provide: { [draftCoordinatorKey as symbol]: coordinator } } })
+    await flushPromises()
+    vi.spyOn(coordinator, 'flush').mockRejectedValueOnce(new Error('write failed'))
+    await wrapper.find('#flow-tab-history').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('#flow-tab-input').attributes('aria-selected')).toBe('true')
+    expect(wrapper.text()).toContain('草稿保留失败')
+    wrapper.unmount()
+  })
   afterEach(() => { vi.unstubAllGlobals(); delete (window as { todoApi?: TodoApi }).todoApi })
 
   it('stashes a link before opening it and saves details after watching', async () => {

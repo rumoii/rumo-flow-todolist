@@ -3,9 +3,10 @@ import type { TaskPlan } from './planning'
 export type { TaskPlan, PlanKind } from './planning'
 export type ArrangeTaskAction = { kind: 'plan'; target: TaskPlan | 'today' | 'tomorrow' | 'week' | 'month' | null } | { kind: 'focus'; enabled: boolean }
 export interface ArrangeTaskInput { taskId: string; updatedAt: string; generation: string; action: ArrangeTaskAction }
-export type LifecycleReason = 'backup' | 'import' | 'close' | 'arrange'
+export interface BatchTaskInput { targets: { id: string; updatedAt: string }[]; generation: string; action: TaskBatchAction }
+export type LifecycleReason = 'backup' | 'import' | 'close' | 'arrange' | 'update'
 export interface TaskSynchronization { task: Task; snapshot: DraftSnapshot }
-export interface LifecycleResume { replaced: boolean; synchronizedTask?: TaskSynchronization }
+export interface LifecycleResume { replaced: boolean; synchronizedTasks?: TaskSynchronization[] }
 export type TaskBatchAction = { kind: 'plan'; plan: TaskPlan | null } | { kind: 'deadline'; date: string | null } | { kind: 'move'; listId: string | null } | { kind: 'tags'; tagIds: string[] } | { kind: 'complete' | 'remove' | 'recover' | 'purge' }
 export interface ActionSource { kind: 'review' | 'video'; key: string }
 export interface ActionLink { requestId: string; taskId: string | null; sourceKind: 'review' | 'video'; sourceKey: string; sourceLabel: string; sourceDate: string; createdAt: string; sourceDeleted: boolean }
@@ -142,6 +143,7 @@ export interface CreateSavedFilterInput { name: string; criteria: TaskFilterCrit
 export type UpdateSavedFilterInput = Partial<CreateSavedFilterInput>
 
 export interface AppSettings {
+  automaticUpdateChecks: boolean
   theme: ThemeMode
   density: DensityMode
   globalShortcut: string
@@ -182,6 +184,20 @@ export interface FlowDay {
   review: DailyReview
   videos: VideoReflection[]
 }
+
+export interface FlowHistoryQuery {
+  from: string
+  to: string
+  keyword: string
+  pendingOnly: boolean
+  reviewedOnly: boolean
+  before?: string
+}
+export interface FlowHistoryEntry extends FlowDaySummary {
+  excerpt: string
+  videoTitles: string[]
+}
+export interface FlowHistoryPage { entries: FlowHistoryEntry[]; nextCursor: string | null }
 
 export interface FlowDaySummary {
   date: string
@@ -240,6 +256,7 @@ export interface BackupPayload {
 export interface ImportResult { importedTasks: number; importedLists: number; importedRules: number; importedReviews: number; importedVideos: number }
 
 export interface TodoApi {
+  updates: import('./updates').UpdatesApi
   drafts: {
     get(kind: DraftKind, key: string): Promise<DraftSnapshot>
     put(input: DraftWrite): Promise<DraftSnapshot>
@@ -247,12 +264,12 @@ export interface TodoApi {
     commit(input: DraftRef & { acceptChanges?: boolean }): Promise<unknown>
   }
   lifecycle: {
-    onPrepare(callback: (request: { id: string; reason: LifecycleReason; taskId?: string }) => Promise<void>): () => void
+    onPrepare(callback: (request: { id: string; reason: LifecycleReason; taskIds?: string[] }) => Promise<void>): () => void
     onResume(callback: (result: LifecycleResume) => void): () => void
   }
   tasks: {
     arrange(input: ArrangeTaskInput): Promise<Task>
-    batch(ids: string[], action: TaskBatchAction): Promise<void>
+    batch(input: BatchTaskInput): Promise<void>
     search(text: string): Promise<SearchHit[]>
     list(query?: TaskQuery): Promise<Task[]>
     create(input: CreateTaskInput): Promise<Task>
@@ -294,6 +311,7 @@ export interface TodoApi {
     actionLinks(source?: ActionSource, taskId?: string): Promise<ActionLinkView[]>
     taskFacts(date: string): Promise<{ completed: Task[]; pending: Task[] }>
     getDay(date: string): Promise<FlowDay>
+    history(query: FlowHistoryQuery): Promise<FlowHistoryPage>
     saveReview(input: SaveDailyReviewInput): Promise<DailyReview>
     createVideo(input: CreateVideoReflectionInput): Promise<VideoReflection>
     updateVideo(id: string, input: UpdateVideoReflectionInput): Promise<VideoReflection>

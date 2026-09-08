@@ -145,7 +145,7 @@ onBeforeUnmount(() => { window.clearTimeout(closeTimer); removeSettingsListener?
         </p>
         <div v-else key="hints" class="capture-hints" aria-label="快速语法提示">
           <span><b>#</b>标签</span>
-          <span><b>!</b>优先级</span>
+          <span><b>!</b>重要程度</span>
           <span><b>@</b>日期</span>
           <span><b>~</b>清单</span>
           <span class="capture-close-hint"><kbd>Esc</kbd> 关闭</span>

@@ -11,6 +11,19 @@ const options = [
 ]
 
 describe('SelectField', () => {
+  it('keeps the menu open while its own list or its scroll container scrolls', async () => {
+    const wrapper = mount(SelectField, { attachTo: document.body, props: { modelValue: 60, options } })
+    await wrapper.get('[role="combobox"]').trigger('click')
+    await wrapper.get('[role="listbox"]').trigger('scroll')
+    document.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[role="combobox"]').attributes('aria-expanded')).toBe('true')
+    expect((wrapper.get('[role="listbox"]').element as HTMLElement).style.position).toBe('fixed')
+    await wrapper.get('[role="combobox"]').trigger('keydown', { key: 'Home' })
+    await wrapper.get('[role="combobox"]').trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('update:modelValue')).toEqual([[null]])
+    wrapper.unmount()
+  })
   it('opens and emits the selected value', async () => {
     const wrapper = mount(SelectField, { props: { modelValue: null, options, ariaLabel: '任务提醒' } })
     expect(wrapper.get('.select-field__caret').text()).toBe('')

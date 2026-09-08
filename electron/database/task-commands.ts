@@ -1,5 +1,5 @@
 import type { TaskRepository } from './tasks'
-import type { ArrangeTaskInput, Task, TaskBatchAction, TaskPlan } from '../../src/shared/contracts'
+import type { ArrangeTaskInput, BatchTaskInput, Task, TaskPlan } from '../../src/shared/contracts'
 import { getDatabase } from './db'
 import { removeTasks, recoverTasks, purgeTasks } from './task-trash'
 import { localDay, planFor, shiftDay, validPlan } from '../../src/shared/planning'
@@ -44,7 +44,10 @@ export class TaskCommands {
       return this.tasks.getTask(current.id)
     })()
   }
-  batch(ids: string[], action: TaskBatchAction): void {
+  batch(input: BatchTaskInput): void {
+    if (!input || !Array.isArray(input.targets) || input.targets.some(target => !target || typeof target.updatedAt !== 'string') || typeof input.generation !== 'string') throw new Error('批量任务参数无效')
+    const ids = input.targets.map(target => target.id)
+    const action = input.action
     if (!Array.isArray(ids) || !ids.length || ids.length > 500 || ids.some(id => typeof id !== 'string' || !id)) throw new Error('请选择 1 至 500 个任务')
     if (!action || !['plan','deadline','move','tags','complete','remove','recover','purge'].includes(action.kind)) throw new Error('批量操作无效')
     if (action.kind === 'plan' && !validPlan(action.plan)) throw new Error('任务安排无效')
@@ -52,15 +55,29 @@ export class TaskCommands {
     if (action.kind === 'move' && action.listId !== null && (typeof action.listId !== 'string' || !getDatabase().prepare('SELECT 1 FROM task_lists WHERE id=?').get(action.listId))) throw new Error('目标清单不存在')
     getDatabase().transaction(() => {
       const unique = [...new Set(ids)]
+      const generation = (getDatabase().prepare('SELECT generation FROM editor_draft_meta WHERE id=1').get() as { generation: string }).generation
+      if (generation !== input.generation) throw new Error('数据已恢复，请重新选择任务')
       const selected = unique.map(id => this.tasks.getTask(id))
+      if (input.targets.some(target => selected.find(task => task.id === target.id)?.updatedAt !== target.updatedAt)) throw new Error('任务已变化，请刷新后重新选择')
       const trash = action.kind === 'recover' || action.kind === 'purge'
       if (selected.some(task => Boolean(task.deletedAt) !== trash)) throw new Error('任务状态已变化，请刷新后重试')
+      if (action.kind === 'plan') {
+        const conflict = selected.find(task => getDatabase().prepare("SELECT 1 FROM editor_drafts WHERE kind='task' AND entity_key=? AND payload IS NOT NULL").get(task.id))
+        if (conflict) throw new Error(`任务「${conflict.title}」有未保存修改，请先在详情中保存或放弃`)
+      }
       if (action.kind === 'remove') { removeTasks(unique); return }
       if (action.kind === 'recover') { recoverTasks(unique); return }
       if (action.kind === 'purge') { purgeTasks(unique); return }
       for (const task of selected) {
         if (action.kind === 'complete') this.tasks.completeTask(task.id)
-        else if (action.kind === 'plan') this.tasks.updateTask(task.id, { plan: action.plan, focusDate: null })
+        else if (action.kind === 'plan') {
+          if (task.parentTaskId) throw new Error('子任务不能独立安排计划')
+          const focus = action.plan?.kind === 'day' && action.plan.start === task.plan?.start ? task.focusDate : null
+          if (JSON.stringify(action.plan) !== JSON.stringify(task.plan) || focus !== task.focusDate) {
+            const updatedAt = new Date(Math.max(Date.now(), Date.parse(task.updatedAt) + 1)).toISOString()
+            getDatabase().prepare('UPDATE tasks SET plan_json=?,focus_date=?,updated_at=? WHERE id=?').run(action.plan ? JSON.stringify(action.plan) : null, focus, updatedAt, task.id)
+          }
+        }
         else if (action.kind === 'deadline') this.tasks.updateTask(task.id, { dueDate: action.date, ...(action.date === null ? { dueTime: null, reminderMinutesBefore: null } : {}) })
         else if (action.kind === 'move') this.tasks.updateTask(task.id, { listId: action.listId })
         else if (action.kind === 'tags') {

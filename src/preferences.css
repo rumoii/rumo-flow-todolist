@@ -22,6 +22,8 @@ html.custom-titlebar .dialog-backdrop,html.custom-titlebar .detail-drawer{top:36
 .preferences-nav button.active{background:var(--accent-soft);color:#856af9;font-weight:600}
 .preferences-nav button span{width:16px;font-size:16px}
 .preferences-content{min-height:0;overflow:auto;padding:20px 28px}
+.update-actions .primary-button{padding:8px 14px;border-radius:6px;background:#856af9;color:#fff}.update-actions .primary-button:hover{background:#7659ee}.update-toggle input{accent-color:#856af9}
+.update-actions{display:flex;gap:8px;flex-wrap:wrap}.update-toggle{display:flex;gap:8px;align-items:center;font-size:12px}.version-badge{font-weight:400;color:var(--muted);font-size:12px}.update-notes{margin-top:12px;font-size:12px}.update-notes p{white-space:pre-wrap;overflow-wrap:anywhere}.update-error{color:var(--danger,#b73546);overflow-wrap:anywhere}.preference-card progress{width:100%;accent-color:#856af9}.update-notice{position:fixed;right:24px;top:48px;z-index:40;background:var(--surface);box-shadow:0 4px 18px #0002}
 .preferences-content h3{margin:0 0 8px;font-size:18px;font-weight:600;color:var(--text)}
 .preferences-content h4{margin:18px 0 10px;font-size:12px;font-weight:600;color:var(--text)}
 .preferences-description,.preference-card p{margin:0;color:var(--text-secondary);font-size:12px;line-height:1.8}

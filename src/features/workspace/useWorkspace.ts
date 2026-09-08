@@ -227,8 +227,8 @@ export function useWorkspace() {
       return '明天'
     return new Date(`${value}T00:00:00`).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
   }
-  function priorityLabel(priority: TaskPriority) { return ({ none: '无优先级', low: '低优先级', medium: '中优先级', high: '高优先级' }[priority]); }
-  function priorityCode(priority: TaskPriority) { return ({ none: '', low: 'P3', medium: 'P2', high: 'P1' }[priority]); }
+  function priorityLabel(priority: TaskPriority) { return ({ none: '未设置', low: '低', medium: '中', high: '高' }[priority]); }
+  function priorityCode(priority: TaskPriority) { return ({ none: '', low: '低', medium: '中', high: '高' }[priority]); }
   function priorityClass(priority: TaskPriority) { return priority === 'high' ? 'priority-high' : priority === 'medium' ? 'priority-medium' : priority === 'low' ? 'priority-low' : ''; }
   async function createTask(title = quickTitle.value) {
     const parsed = parseQuickAdd(title, lists.value, tags.value, currentDate.value)

@@ -96,8 +96,8 @@ const { detailLoading, trapDialogFocus, search, pendingDelete, selectedTaskId, d
 </div>
 </fieldset>
 <div class="field">
-<span>优先级</span>
-<SelectField v-model="detailDraft.priority" aria-label="任务优先级" :options="[{ value: 'none', label: '无优先级' }, { value: 'low', label: 'P3 · 低' }, { value: 'medium', label: 'P2 · 中' }, { value: 'high', label: 'P1 · 高' }]" />
+<span>重要程度</span>
+<SelectField v-model="detailDraft.priority" aria-label="任务重要程度" :options="[{ value: 'none', label: '未设置' }, { value: 'low', label: '低' }, { value: 'medium', label: '中' }, { value: 'high', label: '高' }]" />
 </div>
 </section>
 <section v-if="detailDraft" class="detail-card">

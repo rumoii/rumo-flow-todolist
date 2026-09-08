@@ -12,8 +12,35 @@ vi.mock('electron', () => ({
 import { registerIpcHandlers } from '../electron/ipc'
 import type { Repository } from '../electron/database/repository'
 
-const current: AppSettings = { theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
+const current: AppSettings = { automaticUpdateChecks: true, theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
 const next: AppSettings = { ...current, globalShortcut: 'Ctrl+Shift+Space' }
+it('does not broadcast data changes from read-only flow history', () => {
+  const history = vi.fn(() => ({ entries: [], nextCursor: null }))
+  const broadcast = vi.fn()
+  registerIpcHandlers({ flow: { history } } as never, { onDataChanged: broadcast })
+  const query = { from: '2020-01-01', to: '2020-02-01', keyword: '', pendingOnly: false, reviewedOnly: false }
+  expect(electronState.handlers.get('flow:history')!({}, query)).toEqual({ entries: [], nextCursor: null })
+  expect(history).toHaveBeenCalledExactlyOnceWith(query)
+  expect(broadcast).not.toHaveBeenCalled()
+})
+
+it('coordinates batch arrangement and sends all authoritative snapshots after a single transaction', async () => {
+  const snapshots = { generation: 'current', record: null, revision: 0 }
+  const targets = [{ id: 'first', updatedAt: 'before' }, { id: 'second', updatedAt: 'before' }]
+  const batch = vi.fn()
+  const broadcast = vi.fn()
+  const barrier = { locked: false, run: vi.fn(async (reason, action, synchronization) => {
+    expect(reason).toBe('arrange')
+    expect(synchronization.taskIds).toEqual(['first', 'second'])
+    await action()
+    expect(synchronization.read().map((value: any) => value.task.id)).toEqual(['first', 'second'])
+  }) }
+  registerIpcHandlers({ taskCommands: { batch }, tasks: { getTask: (id: string) => ({ id, updatedAt: 'after' }) }, drafts: { get: () => snapshots } } as never, { barrier: barrier as never, onDataChanged: broadcast })
+  const input = { targets, generation: 'current', action: { kind: 'plan', plan: null } }
+  await electronState.handlers.get('tasks:batch')!({}, input)
+  expect(batch).toHaveBeenCalledExactlyOnceWith(input)
+  expect(broadcast).toHaveBeenCalledExactlyOnceWith(['tasks'])
+})
 
 it('coordinates arrangement, sends the authoritative snapshot, and broadcasts only actual writes', async () => {
   const input = { taskId: 'task', updatedAt: 'before', generation: 'generation', action: { kind: 'plan', target: 'today' } }
@@ -23,9 +50,9 @@ it('coordinates arrangement, sends the authoritative snapshot, and broadcasts on
   const onDataChanged = vi.fn()
   const barrier = { locked: false, run: vi.fn(async (reason, action, synchronization) => {
     expect(reason).toBe('arrange')
-    expect(synchronization.taskId).toBe('task')
+    expect(synchronization.taskIds).toEqual(['task'])
     const result = action()
-    expect(synchronization.read()).toEqual({ task, snapshot })
+    expect(synchronization.read()).toEqual([{ task, snapshot }])
     return result
   }) }
   registerIpcHandlers({ taskCommands: { arrange }, drafts: { get: () => snapshot } } as never, { barrier: barrier as never, onDataChanged })

@@ -3,7 +3,7 @@ import type { AppSettings, TaskList, Tag, RecurrenceRule } from '../../src/share
 export const timestamp = () => new Date().toISOString()
 export const newId = () => crypto.randomUUID()
 export const reminders = [5, 15, 60, 1440]
-export const defaults: AppSettings = { theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
+export const defaults: AppSettings = { automaticUpdateChecks: true, theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
 export const mapList = (row: any): TaskList => ({ id: row.id, name: row.name, color: row.color ?? null, sortOrder: row.sort_order, isPinned: Boolean(row.is_pinned), createdAt: row.created_at, updatedAt: row.updated_at })
 export const mapTag = (row: any): Tag => ({ id: row.id, name: row.name, color: row.color ?? null, createdAt: row.created_at, updatedAt: row.updated_at })
 export const mapRule = (row: any): RecurrenceRule => ({ id: row.id, taskId: row.task_id, frequency: row.frequency, interval: row.interval, weekdays: JSON.parse(row.weekdays), monthDay: row.month_day ?? null, endDate: row.end_date, nextDueDate: row.next_due_date })

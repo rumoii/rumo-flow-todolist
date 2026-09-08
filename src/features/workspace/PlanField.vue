@@ -11,7 +11,12 @@ function changeDate(event: Event) {
 </script>
 <template>
   <div class="plan-field">
-    <SelectField v-model="kind" aria-label="计划精度" :options="[{ value: '', label: '未安排' }, { value: 'month', label: '月计划' }, { value: 'week', label: '周计划' }, { value: 'day', label: '日计划' }]" />
-    <input v-if="model" type="date" aria-label="计划日期" :value="model.start" @change="changeDate" />
+    <label class="plan-kind"><span>安排方式</span><SelectField v-model="kind" aria-label="安排方式" :options="[{ value: '', label: '未安排' }, { value: 'month', label: '按月安排' }, { value: 'week', label: '按周安排' }, { value: 'day', label: '按日安排' }]" /></label>
+    <input v-if="model" type="date" aria-label="计划日期" :value="model.start" required @change="changeDate" />
   </div>
 </template>
+<style scoped>
+.plan-kind { display: flex; flex-direction: column; gap: 6px; min-width: 130px; }
+.plan-kind > span { color: var(--text-secondary); font-size: 11px; }
+.plan-field { align-items: flex-end; }
+</style>

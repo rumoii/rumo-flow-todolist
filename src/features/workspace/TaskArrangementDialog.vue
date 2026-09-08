@@ -42,7 +42,7 @@ function onKeydown(event: KeyboardEvent) {
         </div>
         <PlanField v-model="state.custom" />
         <p class="arrangement-preview">将安排为：{{ planLabel(state.custom) }}</p>
-        <button class="save-button arrangement-apply" @click="applyCustom">应用自定义安排</button>
+        <button class="save-button arrangement-apply" @click="applyCustom">保存计划</button>
         <button class="arrangement-focus" @click="arrangement.submit({ kind: 'focus', enabled: state.task.focusDate !== todayIso })">{{ state.task.focusDate === todayIso ? '☆ 取消今日重点' : '★ 安排到今天并设为重点' }}</button>
       </fieldset>
       <p v-if="state.busy" role="status">正在确认任务和保留窗口输入…</p>

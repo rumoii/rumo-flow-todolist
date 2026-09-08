@@ -9,7 +9,8 @@ export function useFlow(props: {
   let hydration = false
   let removeDataListener: (() => void) | undefined
   let loadSequence = 0
-  type FlowTab = 'input' | 'review'
+  let switchingDay = false
+  type FlowTab = 'input' | 'review' | 'history'
   type ReviewDraft = Omit<SaveDailyReviewInput, 'date' | 'inputType' | 'inputVideoId'>
   type VideoDraft = Pick<VideoReflection, 'title' | 'sourceUrl' | 'author' | 'thought'>
   type DayDraft = {
@@ -37,6 +38,9 @@ export function useFlow(props: {
   const reviewDraft = ref<ReviewDraft>({ didWell: '', didNotWell: '', reflection: '', inputText: '', outputText: '', tomorrowExpectation: '' })
   const reviewInputChoice = ref('none')
   const videoUrl = ref('')
+  const videoUrls = new Map<string, string>()
+  watch(videoUrl, value => videoUrls.set(selectedDate.value, value), { flush: 'sync' })
+  const addingVideo = ref(false)
   const videoDrafts = ref<Record<string, VideoDraft>>({})
   const draftCache = ref<Record<string, DayDraft>>({})
   const loading = ref(true)
@@ -90,40 +94,39 @@ export function useFlow(props: {
   function stashDrafts() {
     if (loading.value)
       return
+    videoUrls.set(selectedDate.value, videoUrl.value)
     draftCache.value[selectedDate.value] = {
       review: { ...reviewDraft.value },
       inputChoice: reviewInputChoice.value,
       videos: Object.fromEntries(Object.entries(videoDrafts.value).map(([id, draft]) => [id, { ...draft }])),
     }
   }
-  function hydrateDrafts() {
-    const review = day.value.review
-    const cached = draftCache.value[selectedDate.value]
-    reviewDraft.value = cached?.review ?? { didWell: review.didWell, didNotWell: review.didNotWell, reflection: review.reflection, inputText: review.inputText, outputText: review.outputText, tomorrowExpectation: review.tomorrowExpectation }
-    reviewInputChoice.value = cached?.inputChoice ?? (review.inputType === 'video' && review.inputVideoId ? `video:${review.inputVideoId}` : review.inputType)
-    videoDrafts.value = Object.fromEntries(day.value.videos.map((video) => [video.id, cached?.videos[video.id] ?? videoDraftFrom(video)]))
-  }
-  async function loadDay() {
+  async function loadDay(date = selectedDate.value) {
     const request = ++loadSequence
-    const date = selectedDate.value
     loading.value = true
     try {
       const loaded = hasApi() ? await window.todoApi.flow.getDay(date) : { review: emptyReview(date), videos: [] }
       if (request !== loadSequence)
-        return
-      hydration = true
-      day.value = loaded
-      hydrateDrafts()
-      const review = await drafts.open('review', date, { date, ...reviewDraft.value, inputType: loaded.review.inputType, inputVideoId: loaded.review.inputVideoId })
-      const videos = await Promise.all(loaded.videos.map(async (video) => [video.id, await drafts.open('video', video.id, videoDraftFrom(video))] as const))
+        return false
+      const cached = draftCache.value[date]
+      const choice = cached?.inputChoice
+      const saved = loaded.review
+      const review = await drafts.open('review', date, { date, didWell: saved.didWell, didNotWell: saved.didNotWell, reflection: saved.reflection, inputText: saved.inputText, outputText: saved.outputText, tomorrowExpectation: saved.tomorrowExpectation, ...cached?.review, inputType: choice ? choice.startsWith('video:') ? 'video' : choice === 'other' ? 'other' : 'none' : saved.inputType, inputVideoId: choice ? choice.startsWith('video:') ? choice.slice(6) : null : saved.inputVideoId })
+      const videos = await Promise.all(loaded.videos.map(async (video) => [video.id, await drafts.open('video', video.id, cached?.videos[video.id] ?? videoDraftFrom(video))] as const))
       if (request !== loadSequence)
-        return
+        return false
+      hydration = true
+      selectedDate.value = date
+      day.value = loaded
+      videoUrl.value = videoUrls.get(date) ?? ''
       reviewDraft.value = review
       reviewInputChoice.value = review.inputType === 'video' && review.inputVideoId ? `video:${review.inputVideoId}` : review.inputType ?? 'none'
       videoDrafts.value = Object.fromEntries(videos)
+      return true
     }
     catch {
       setNotice('心流记录加载失败')
+      return false
     }
     finally {
       if (request === loadSequence) {
@@ -178,27 +181,37 @@ export function useFlow(props: {
     }
   }
   async function refresh() { await Promise.all([loadDay(), loadOverview()]); }
-  async function selectDay(date: string) { if (!date || date > todayIso.value || date === selectedDate.value)
-    return; try {
-    await drafts.flush()
+  async function selectDay(date: string) {
+    if (!date || date > todayIso.value || isoDate(new Date(date + 'T12:00:00')) !== date || addingVideo.value || switchingDay) return false
+    if (date === selectedDate.value) return !loading.value
+    switchingDay = true
+    try {
+      try { await drafts.flush() }
+      catch { setNotice('草稿保留失败，请重试'); return false }
+      stashDrafts()
+      if (!await loadDay(date)) return false
+      monthCursor.value = date.slice(0, 7)
+      await loadOverview()
+      return true
+    }
+    finally { switchingDay = false }
   }
-  catch {
-    setNotice('草稿保留失败，请重试')
-    return
-  } ; stashDrafts(); selectedDate.value = date; monthCursor.value = date.slice(0, 7); await Promise.all([loadDay(), loadOverview()]); }
   async function changeMonth(offset: number) { const [year, month] = monthCursor.value.split('-').map(Number); const next = new Date(year, month - 1 + offset, 1); monthCursor.value = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`; await loadOverview(); }
   function daySummary(date: string) { return monthDays.value.find((item) => item.date === date); }
-  function setActiveTab(tab: FlowTab) { activeTab.value = tab; }
+  async function setActiveTab(tab: FlowTab) {
+    try { await drafts.flush(); stashDrafts(); activeTab.value = tab }
+    catch { setNotice('草稿保留失败，请重试') }
+  }
   function moveTab(event: KeyboardEvent) {
     if (!['ArrowLeft', 'ArrowRight'].includes(event.key))
       return
     event.preventDefault()
-    activeTab.value = activeTab.value === 'input' ? 'review' : 'input'
-    requestAnimationFrame(() => document.getElementById(`flow-tab-${activeTab.value}`)?.focus())
+    const tabs: FlowTab[] = ['input', 'review', 'history']
+    const next = tabs[(tabs.indexOf(activeTab.value) + (event.key === 'ArrowRight' ? 1 : 2)) % tabs.length]
+    void setActiveTab(next).then(() => document.getElementById(`flow-tab-${activeTab.value}`)?.focus())
   }
   async function addVideo() {
-    if (!isToday.value)
-      return
+    if (addingVideo.value) return
     if (!videoUrl.value.trim()) {
       setNotice('请先粘贴视频链接')
       return
@@ -208,14 +221,18 @@ export function useFlow(props: {
       warnings.push(`还有 ${pendingThoughts.value} 条视频待补思考`)
     if (day.value.videos.length >= day.value.review.videoLimit)
       warnings.push(`今天已达到 ${day.value.videos.length}/${day.value.review.videoLimit} 的额度`)
-    if (warnings.length && !await askConfirmation('继续打开下一条？', `${warnings.join('，')}。先确认是否仍要继续。`, '继续打开'))
+    if (isToday.value && warnings.length && !await askConfirmation('继续打开下一条？', `${warnings.join('，')}。先确认是否仍要继续。`, '继续打开'))
       return
+    addingVideo.value = true
+    const date = selectedDate.value
+    const openSource = isToday.value
     try {
       stashDrafts()
-      const created = hasApi() ? await window.todoApi.flow.createVideo({ date: selectedDate.value, sourceUrl: videoUrl.value }) : null
+      const created = hasApi() ? await window.todoApi.flow.createVideo({ date, sourceUrl: videoUrl.value }) : null
       videoUrl.value = ''
+      videoUrls.delete(date)
       await refresh()
-      if (created) {
+      if (created && openSource) {
         try {
           await window.todoApi.desktop.openExternal(created.sourceUrl)
           setNotice('链接已暂存，观看后回来补充信息')
@@ -224,10 +241,12 @@ export function useFlow(props: {
           setNotice('链接已暂存，但来源页面未能打开')
         }
       }
+      else if (created) setNotice(`已补录到 ${date}，可以继续补充标题和思考`)
     }
     catch (error) {
       setNotice(error instanceof Error ? error.message : '视频链接暂存失败')
     }
+    finally { addingVideo.value = false }
   }
   async function openVideo(url: string) { try {
     if (hasApi())
@@ -300,5 +319,5 @@ export function useFlow(props: {
     void refresh(); }); void refresh(); midnightTimer = window.setInterval(() => { void checkDateRollover(); }, 60000); document.addEventListener('visibilitychange', checkDateRollover); })
   onBeforeUnmount(() => { removeDataListener?.(); if (midnightTimer)
     window.clearInterval(midnightTimer); document.removeEventListener('visibilitychange', checkDateRollover); resolveConfirmation(false); })
-  return { drafts, hydration, loadSequence, isoDate, emptyReview, hasApi, videoDraftFrom, todayIso, selectedDate, monthCursor, activeTab, day, monthDays, summary, reviewDraft, reviewInputChoice, videoUrl, videoDrafts, draftCache, loading, notice, confirmation, midnightTimer, selectedSummary, isToday, pendingThoughts, overLimit, monthLabel, selectedDateLabel, inputOptions, calendarCells, setNotice, askConfirmation, resolveConfirmation, trapConfirmationFocus, stashDrafts, hydrateDrafts, loadDay, captureDrafts, discardReview, discardVideo, loadOverview, refresh, selectDay, changeMonth, daySummary, setActiveTab, moveTab, addVideo, openVideo, saveVideo, removeVideo, saveReview, checkDateRollover }
+  return { drafts, hydration, loadSequence, isoDate, emptyReview, hasApi, videoDraftFrom, todayIso, selectedDate, monthCursor, activeTab, day, monthDays, summary, reviewDraft, reviewInputChoice, videoUrl, addingVideo, videoDrafts, draftCache, loading, notice, confirmation, midnightTimer, selectedSummary, isToday, pendingThoughts, overLimit, monthLabel, selectedDateLabel, inputOptions, calendarCells, setNotice, askConfirmation, resolveConfirmation, trapConfirmationFocus, stashDrafts, loadDay, captureDrafts, discardReview, discardVideo, loadOverview, refresh, selectDay, changeMonth, daySummary, setActiveTab, moveTab, addVideo, openVideo, saveVideo, removeVideo, saveReview, checkDateRollover }
 }

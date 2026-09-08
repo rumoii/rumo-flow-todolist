@@ -13,7 +13,7 @@ it('resumes all windows after a rejected flush without running the arrangement',
   state.windows = [1, 2].map(id => ({ isDestroyed: () => false, webContents: { id, send: vi.fn((channel, payload) => { if (channel === 'lifecycle:prepare') requests.push(payload) }) } }))
   const barrier = new WindowBarrier()
   const action = vi.fn()
-  const pending = barrier.run('arrange', action, { taskId: 'target', read: () => undefined })
+  const pending = barrier.run('arrange', action, { taskIds: ['target'], read: () => [] })
   state.listeners.get('lifecycle:ack')!({ sender: { id: 1 } }, { ...requests[0], error: 'disk failed' })
   await expect(pending).rejects.toThrow('disk failed')
   expect(action).not.toHaveBeenCalled()
@@ -29,8 +29,8 @@ it('preserves a successful result and resumes remaining windows when one notific
     else if (id === 1) throw new Error('destroyed')
   }) } }))
   const sync = { task: { id: 'target' }, snapshot: { record: null } } as never
-  await expect(barrier.run('arrange', () => 'committed', { taskId: 'target', read: () => sync })).resolves.toBe('committed')
-  expect(state.windows[1].webContents.send).toHaveBeenLastCalledWith('lifecycle:resume', { replaced: false, synchronizedTask: sync })
+  await expect(barrier.run('arrange', () => 'committed', { taskIds: ['target'], read: () => [sync] })).resolves.toBe('committed')
+  expect(state.windows[1].webContents.send).toHaveBeenLastCalledWith('lifecycle:resume', { replaced: false, synchronizedTasks: [sync] })
   expect(barrier.locked).toBe(false)
   log.mockRestore()
 })
@@ -64,5 +64,30 @@ it('aborts on timeout, resumes editing and rejects overlapping operations', asyn
   await rejection
   expect(action).not.toHaveBeenCalled()
   expect(send).toHaveBeenLastCalledWith('lifecycle:resume', { replaced: false })
+  expect(barrier.running).toBe(false)
+})
+
+it('holds all windows and the write lock until an installation is cancelled', async () => {
+  const barrier = new WindowBarrier()
+  state.windows = [1, 2].map(id => ({ isDestroyed: () => false, webContents: { id, send: vi.fn((channel, payload) => {
+    if (channel === 'lifecycle:prepare') state.listeners.get('lifecycle:ack')!({ sender: { id } }, payload)
+  }) } }))
+  const install = vi.fn(() => { expect(barrier.locked).toBe(true) })
+  await barrier.run('update', install, { hold: true })
+  expect(install).toHaveBeenCalledOnce()
+  expect(barrier.locked).toBe(true)
+  expect(barrier.running).toBe(true)
+  for (const window of state.windows) expect(window.webContents.send).toHaveBeenCalledTimes(1)
+  await expect(barrier.run('backup', () => undefined)).rejects.toThrow('正在保留')
+  barrier.release()
+  expect(barrier.locked).toBe(false)
+  for (const window of state.windows) expect(window.webContents.send).toHaveBeenLastCalledWith('lifecycle:resume', { replaced: false })
+})
+
+it('does not retain an installation lock after preparation or launch failure', async () => {
+  const barrier = new WindowBarrier()
+  state.windows = []
+  await expect(barrier.run('update', () => { throw new Error('cannot launch') }, { hold: true })).rejects.toThrow('cannot launch')
+  expect(barrier.locked).toBe(false)
   expect(barrier.running).toBe(false)
 })

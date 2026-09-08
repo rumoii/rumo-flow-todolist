@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { computed, nextTick, provide, ref, watch } from 'vue'
+import { batchSelectionKey, useBatchSelection } from './useBatchSelection'
+import TaskSelection from './TaskSelection.vue'
 import BatchToolbar from './BatchToolbar.vue'
 import TrashPage from './TrashPage.vue'
 import HistorySearch from './HistorySearch.vue'
@@ -12,11 +15,22 @@ import FlowView from '../../components/FlowView.vue'
 import TagPage from './TagPage.vue'
 const { totalStatus, totalDeadline, unplannedOnly, dueToday, pastPlanned, tags, lists, tasks, activeView, quickTitle, quickInput, search, groupBy, temporaryTagId, loading, todayIso, selectTask, viewTitle, viewHint, taskReorderEnabled, draggedTaskId, endTaskDrag, dropTaskInZone, onWeekDrop, isTodayTask, filteredTasks, pinnedTasks, groupedRegularTasks, completedTodayCount, temporaryTag, emptyState, priorityCode, priorityClass, createTask, toggleTask, weekDates, tasksForDate, rumoFlowIcon } = useWorkspaceContext()
 const { quickPlanHint } = useWorkspaceContext()
+const { drafts, closeMenus } = useWorkspaceContext()
+const dueExpanded = ref(false)
+const pastExpanded = ref(false)
+const selectionTrigger = ref<HTMLButtonElement>()
+const candidates = computed(() => activeView.value === 'today' ? [...pinnedTasks.value, ...groupedRegularTasks.value, ...(dueExpanded.value ? dueToday.value : []), ...(pastExpanded.value ? pastPlanned.value : [])] : filteredTasks.value)
+const scope = computed(() => JSON.stringify([activeView.value, search.value, temporaryTagId.value, totalStatus.value, totalDeadline.value, unplannedOnly.value, drafts.epoch.value]))
+const batch = useBatchSelection(candidates, scope, async () => { tasks.value = await window.todoApi.tasks.list({}) })
+provide(batchSelectionKey, batch)
+watch(batch.active, () => { closeMenus(); endTaskDrag() })
+watch(activeView, () => { dueExpanded.value = false; pastExpanded.value = false })
+async function exitSelection() { batch.exit(); await nextTick(); selectionTrigger.value?.focus() }
 </script>
 
 <template>
-<main :class="['main-content', { 'flow-view-active': activeView === 'flow' }]">
-      <header class="page-header">
+<main :class="['main-content', { 'flow-view-active': activeView === 'flow', 'batch-active': batch.active.value }]" @keydown.esc="batch.active.value && exitSelection()">
+      <header class="page-header" :inert="batch.busy.value">
 <Transition name="title" mode="out-in">
 <div :key="activeView">
 <p class="eyebrow">{{ viewHint }}</p>
@@ -24,9 +38,10 @@ const { quickPlanHint } = useWorkspaceContext()
 </div>
 </Transition>
 <div v-if="!['flow', 'tags', 'trash', 'history'].includes(activeView)" class="header-actions">
+<button v-if="!batch.active.value" ref="selectionTrigger" class="secondary-button" :disabled="batch.busy.value || !batch.available.value.length" @click="batch.enter">选择任务</button>
 <label v-if="activeView !== 'week' && activeView !== 'month'" class="group-select">
 <span>分组</span>
-<SelectField v-model="groupBy" aria-label="任务分组" :options="[{ value: 'none', label: '不分组' }, { value: 'list', label: '按清单' }, { value: 'priority', label: '按优先级' }, { value: 'tag', label: '按标签' }]" />
+<SelectField v-model="groupBy" aria-label="任务分组" :options="[{ value: 'none', label: '不分组' }, { value: 'list', label: '按清单' }, { value: 'priority', label: '按重要程度' }, { value: 'tag', label: '按标签' }]" />
 </label>
 <label class="search-box">
 <span>⌕</span>
@@ -34,7 +49,7 @@ const { quickPlanHint } = useWorkspaceContext()
 </label>
 </div>
 </header>
-      <section :class="['content-inner', { 'flow-content-inner': activeView === 'flow' }]">
+      <section :class="['content-inner', { 'flow-content-inner': activeView === 'flow' }]" :inert="batch.busy.value">
         <TagPage v-if="activeView === 'tags'" />
         <TrashPage v-if="activeView === 'trash'" />
         <HistorySearch v-if="activeView === 'history'" />
@@ -54,7 +69,7 @@ const { quickPlanHint } = useWorkspaceContext()
           <SelectField v-model="totalDeadline" aria-label="截止日期筛选" :options="[{ value: 'any', label: '任意截止日期' }, { value: 'today', label: '今天到期' }, { value: 'overdue', label: '已逾期' }, { value: 'next7', label: '未来七天到期' }, { value: 'none', label: '无截止日期' }]" />
           <label><input v-model="unplannedOnly" type="checkbox" />仅未安排</label>
         </div>
-        <BatchToolbar :tasks="filteredTasks" />
+        <p v-if="!batch.active.value && batch.error.value" role="status">{{ batch.error.value }}</p>
         <div v-if="temporaryTag" class="temporary-filter">
 <span>当前标签：<strong>#{{ temporaryTag.name }}</strong>
 </span>
@@ -63,19 +78,20 @@ const { quickPlanHint } = useWorkspaceContext()
         <Transition name="view" mode="out-in">
           <div :key="activeView" class="view-content" :class="{ 'today-view': activeView === 'today' }">
             <template v-if="activeView === 'week'">
-              <section v-if="filteredTasks.some(task => task.plan?.kind === 'week')" class="planning-panel"><h3>本周待细化</h3><div v-for="task in filteredTasks.filter(task => task.plan?.kind === 'week')" :key="task.id" draggable="true" @dragstart="draggedTaskId = task.id" @dragend="endTaskDrag"><TaskRow :task="task" /></div></section>
+              <section v-if="filteredTasks.some(task => task.plan?.kind === 'week')" class="planning-panel"><h3>本周待细化</h3><div v-for="task in filteredTasks.filter(task => task.plan?.kind === 'week')" :key="task.id" :draggable="!batch.active.value" @dragstart="!batch.active.value && (draggedTaskId = task.id)" @dragend="endTaskDrag"><TaskRow :task="task" /></div></section>
               <div class="week-board">
-<div v-for="date in weekDates()" :key="date" class="day-column" @dragover.prevent @drop="onWeekDrop($event, date)">
+<div v-for="date in weekDates()" :key="date" class="day-column" @dragover.prevent @drop="!batch.active.value && onWeekDrop($event, date)">
 <div class="day-heading" :class="{ today: date === todayIso }">
 <span>{{ new Date(`${date}T00:00:00`).toLocaleDateString('zh-CN', { weekday: 'short' }) }}</span>
 <b>{{ new Date(`${date}T00:00:00`).getDate() }}</b>
 </div>
 <div v-if="!tasksForDate(date).length" class="day-empty">拖放任务到这里</div>
 <TransitionGroup name="task-card" tag="div" class="day-task-items">
-<article v-for="task in tasksForDate(date)" :key="task.id" :data-task-id="task.id" class="task-card" draggable="true" @dragstart="draggedTaskId = task.id" @dragend="endTaskDrag" @click="selectTask(task)">
-<button class="check" :aria-label="task.status === 'completed' ? '恢复任务' : '完成任务'" :class="{ checked: task.status === 'completed' }" @click.stop="toggleTask(task)">{{ task.status === 'completed' ? '✓' : '' }}</button>
+<article v-for="task in tasksForDate(date)" :key="task.id" :data-task-id="task.id" class="task-card" :draggable="!batch.active.value" @dragstart="!batch.active.value && (draggedTaskId = task.id)" @dragend="endTaskDrag" @click="selectTask(task)">
+<TaskSelection :task="task" />
+<button :disabled="batch?.active.value" class="check" :aria-label="task.status === 'completed' ? '恢复任务' : '完成任务'" :class="{ checked: task.status === 'completed' }" @click.stop="toggleTask(task)">{{ task.status === 'completed' ? '✓' : '' }}</button>
 <span class="task-card-body">
-<span v-if="task.priority !== 'none'" :class="['priority-badge', priorityClass(task.priority)]">♨ {{ priorityCode(task.priority) }}</span>
+<span v-if="task.priority !== 'none'" :class="['priority-badge', priorityClass(task.priority)]">{{ priorityCode(task.priority) }}</span>
 <span class="task-title" role="button" tabindex="0" :aria-label="`打开任务 ${task.title}`" @keydown.enter.prevent.stop="selectTask(task)" @keydown.space.prevent.stop="selectTask(task)">{{ task.title }}</span>
 <TaskPlanButton :task="task" />
 <small v-if="task.focusDate">★ 当日重点</small>
@@ -112,7 +128,7 @@ const { quickPlanHint } = useWorkspaceContext()
 </div>
 </template>
             <div v-else class="task-list">
-          <section v-if="taskReorderEnabled || pinnedTasks.length" class="task-zone pinned-zone" :class="{ empty: !pinnedTasks.length }" @dragover.prevent @drop.stop="dropTaskInZone(true)">
+          <section v-if="taskReorderEnabled || pinnedTasks.length" class="task-zone pinned-zone" :class="{ empty: !pinnedTasks.length }" @dragover.prevent @drop.stop="!batch.active.value && dropTaskInZone(true)">
             <div class="task-zone-heading">
 <span>置顶</span>
 <small v-if="taskReorderEnabled">拖到这里置顶</small>
@@ -122,7 +138,7 @@ const { quickPlanHint } = useWorkspaceContext()
             <TaskRow v-for="task in pinnedTasks" :key="task.id" :task="task" />
             </TransitionGroup>
           </section>
-          <section class="task-zone regular-zone" @dragover.prevent @drop.stop="dropTaskInZone(false)">
+          <section class="task-zone regular-zone" @dragover.prevent @drop.stop="!batch.active.value && dropTaskInZone(false)">
             <div v-if="pinnedTasks.length" class="task-zone-heading">
 <span>其他任务</span>
 </div>
@@ -135,11 +151,12 @@ const { quickPlanHint } = useWorkspaceContext()
         </Transition>
         <section v-if="activeView === 'today' && (dueToday.length || pastPlanned.length)" class="today-reminders" aria-label="待处理提醒">
           <h2>待处理提醒</h2>
-          <details v-if="dueToday.length" class="planning-panel"><summary>今日到期 · {{ dueToday.length }} 项</summary><TaskRow v-for="task in dueToday" :key="task.id" :task="task" reminder /></details>
-          <details v-if="pastPlanned.length" class="planning-panel"><summary>过往计划未完成 · {{ pastPlanned.length }} 项</summary><p>原计划保持不变，按需重新安排。</p><TaskRow v-for="task in pastPlanned" :key="task.id" :task="task" reminder /></details>
+          <details v-if="dueToday.length" class="planning-panel" @toggle="dueExpanded = ($event.target as HTMLDetailsElement).open"><summary>今日到期 · {{ dueToday.length }} 项</summary><TaskRow v-for="task in dueToday" :key="task.id" :task="task" reminder /></details>
+          <details v-if="pastPlanned.length" class="planning-panel" @toggle="pastExpanded = ($event.target as HTMLDetailsElement).open"><summary>过往计划未完成 · {{ pastPlanned.length }} 项</summary><p>原计划保持不变，按需重新安排。</p><TaskRow v-for="task in pastPlanned" :key="task.id" :task="task" reminder /></details>
         </section>
         </template>
       </section>
       <TaskArrangementDialog />
+      <BatchToolbar v-if="batch.active.value" :count="batch.selected.value.length" :selection="batch.selected.value.map(task => task.id).join(',')" :available="batch.available.value.length" :busy="batch.busy.value" :saved="batch.saved.value" :error="batch.error.value" @apply="batch.apply" @all="batch.selectAll" @clear="batch.selected.value = []" @exit="exitSelection" @refresh="batch.reload" />
     </main>
 </template>

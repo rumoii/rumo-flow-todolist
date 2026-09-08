@@ -2,8 +2,11 @@ import { getDatabase } from './db'
 import { timestamp, newId, localDate, shiftDate, validCalendarDate, normalizeHttpUrl, platformForUrl } from './common'
 import type { CreateVideoReflectionInput, DailyReview, FlowDay, FlowDaySummary, FlowSummary, SaveDailyReviewInput, UpdateVideoReflectionInput, VideoReflection } from '../../src/shared/contracts'
 import { SettingsRepository } from './settings'
+import { listFlowHistory } from './flow-history'
+import type { FlowHistoryQuery } from '../../src/shared/contracts'
 export class FlowRepository {
   constructor(private readonly settings: SettingsRepository) { }
+  history(query: FlowHistoryQuery) { return listFlowHistory(query) }
   mapFlowDay(row: any): DailyReview {
     const inputVideoId = row.input_video_id ?? null
     return { date: row.entry_date, videoLimit: row.video_limit, didWell: row.did_well, didNotWell: row.did_not_well, reflection: row.reflection, inputType: row.input_type === 'video' && !inputVideoId ? 'none' : row.input_type, inputVideoId, inputText: row.input_text, outputText: row.output_text, tomorrowExpectation: row.tomorrow_expectation, savedAt: row.saved_at ?? null, createdAt: row.created_at, updatedAt: row.updated_at }
@@ -20,8 +23,18 @@ export class FlowRepository {
       db.prepare('UPDATE flow_days SET video_limit=? WHERE entry_date=?').run(currentLimit, date)
     return this.mapFlowDay(db.prepare('SELECT * FROM flow_days WHERE entry_date=?').get(date))
   }
-  getFlowDay(date: string): FlowDay { const review = this.ensureFlowDay(date); const videos = (getDatabase().prepare('SELECT * FROM flow_videos WHERE entry_date=? ORDER BY created_at').all(date) as any[]).map((row) => this.mapFlowVideo(row)); return { review, videos }; }
+  getFlowDay(date: string): FlowDay {
+    if (!validCalendarDate(date)) throw new Error('心流日期无效')
+    const row = getDatabase().prepare('SELECT * FROM flow_days WHERE entry_date=?').get(date)
+    const currentLimit = this.settings.getSettings().dailyVideoLimit
+    const now = timestamp()
+    const review: DailyReview = row ? this.mapFlowDay(row) : { date, videoLimit: currentLimit, didWell: '', didNotWell: '', reflection: '', inputType: 'none', inputVideoId: null, inputText: '', outputText: '', tomorrowExpectation: '', savedAt: null, createdAt: now, updatedAt: now }
+    if (date === localDate()) review.videoLimit = currentLimit
+    const videos = (getDatabase().prepare('SELECT * FROM flow_videos WHERE entry_date=? ORDER BY created_at,rowid').all(date) as any[]).map(row => this.mapFlowVideo(row))
+    return { review, videos }
+  }
   saveFlowReview(input: SaveDailyReviewInput): DailyReview {
+    if (!validCalendarDate(input.date) || input.date > localDate()) throw new Error('请选择今天或过去的日期')
     const review = this.ensureFlowDay(input.date)
     const inputType = input.inputType ?? 'none'
     if (!['none', 'video', 'other'].includes(inputType))
@@ -41,12 +54,12 @@ export class FlowRepository {
     return this.mapFlowDay(getDatabase().prepare('SELECT * FROM flow_days WHERE entry_date=?').get(review.date))
   }
   createFlowVideo(input: CreateVideoReflectionInput): VideoReflection {
-    if (!validCalendarDate(input.date))
-      throw new Error('心流日期无效')
+    if (!validCalendarDate(input.date) || input.date > localDate())
+      throw new Error('请选择今天或过去的日期')
+    const sourceUrl = normalizeHttpUrl(input.sourceUrl)
     this.ensureFlowDay(input.date)
     const id = newId()
     const createdAt = timestamp()
-    const sourceUrl = normalizeHttpUrl(input.sourceUrl)
     getDatabase().prepare('INSERT INTO flow_videos(id,entry_date,title,source_url,author,thought,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)').run(id, input.date, input.title?.trim() ?? '', sourceUrl, input.author?.trim() ?? '', '', createdAt, createdAt)
     return this.mapFlowVideo(getDatabase().prepare('SELECT * FROM flow_videos WHERE id=?').get(id))
   }

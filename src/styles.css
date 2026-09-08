@@ -93,6 +93,7 @@ html,body,#app{min-height:100%;background:var(--app-bg);color:var(--text)}
 .dialog-icon{background:var(--danger-soft)}
 .settings-dialog footer{border-top:1px solid var(--border)}
 .select-field__menu{box-shadow:var(--panel-shadow)}
+.priority-badge.priority-high,.priority-badge.priority-medium,.priority-badge.priority-low{background:var(--surface-soft);color:var(--text-secondary);font-weight:400;border:1px solid var(--border)}
 .select-field__option.active{background:var(--accent-soft)}
 .saved-filter-section .list-composer>input,.tag-search-row input,.tag-create-row input,.managed-tag-row .managed-tag-name,.settings-number,.review-reminder-setting input[type=time],.detail-card .field input,.detail-card .subtask-composer,.detail-card .tag-search-row input,.notes-card textarea{background:var(--surface-raised);border-color:var(--border);color:var(--text)}
 .detail-card .field input:hover{background:var(--surface-hover)}

@@ -3,6 +3,7 @@ import { parseBackup } from './validation'
 import type { AppSettings, BackupPayload } from '../../src/shared/contracts'
 import { dialog } from 'electron'
 import fs from 'node:fs/promises'
+import { defaults } from '../database/common'
 export function registerBackup({ repository, options, handle, changed }: IpcContext): void {
   handle('backup:export', async () => {
     const payload = repository.backup.exportBackup()
@@ -30,7 +31,7 @@ export function registerBackup({ repository, options, handle, changed }: IpcCont
       return null
     const restore = () => {
       const currentSettings = repository.settings.getSettings()
-      const nextSettings = repository.settings.validateSettings(payload.settings as Partial<AppSettings>)
+      const nextSettings = repository.settings.validateSettings({ automaticUpdateChecks: defaults.automaticUpdateChecks, ...payload.settings } as Partial<AppSettings>)
       const rollback = options.onSettingsChanging?.(nextSettings, currentSettings)
       try {
         const result = repository.backup.importBackup({ ...payload, settings: { ...nextSettings } })

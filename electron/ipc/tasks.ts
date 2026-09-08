@@ -1,6 +1,6 @@
 import type { IpcContext } from './context'
 import { text, object, ids } from './validation'
-import type { ArrangeTaskInput, TaskSynchronization, CreateTaskInput, OrganizeTaskInput, TaskQuery, UpdateTaskInput, TaskBatchAction } from '../../src/shared/contracts'
+import type { ArrangeTaskInput, BatchTaskInput, TaskSynchronization, CreateTaskInput, OrganizeTaskInput, TaskQuery, UpdateTaskInput } from '../../src/shared/contracts'
 export function registerTasks({ repository, options, handle, changed }: IpcContext): void {
   handle('tasks:arrange', async (_event, raw) => {
     const input = object<ArrangeTaskInput>(raw, '任务安排')
@@ -12,9 +12,20 @@ export function registerTasks({ repository, options, handle, changed }: IpcConte
       const task = repository.taskCommands.arrange(input)
       synchronized = { task, snapshot: { ...snapshot, baseUpdatedAt: task.updatedAt } }
       return task
-    }, { taskId: input.taskId, read: () => synchronized })
+    }, { taskIds: [input.taskId], read: () => synchronized ? [synchronized] : [] })
   })
-  handle('tasks:batch', (_event, taskIds, action) => changed(repository.taskCommands.batch(ids(taskIds, '任务'), object<TaskBatchAction>(action, '批量操作'))))
+  handle('tasks:batch', async (_event, raw) => {
+    const input = object<BatchTaskInput>(raw, '批量操作')
+    if (!Array.isArray(input.targets)) throw new Error('批量任务参数无效')
+    const taskIds = ids(input.targets.map(target => target?.id), '任务')
+    if (input.action?.kind !== 'plan') return changed(repository.taskCommands.batch(input))
+    if (!options.barrier) throw new Error('窗口协调尚未就绪，请重启应用')
+    let synchronized: TaskSynchronization[] = []
+    return options.barrier.run('arrange', () => {
+      repository.taskCommands.batch(input)
+      synchronized = [...new Set(taskIds)].map(taskId => ({ task: repository.tasks.getTask(taskId), snapshot: repository.drafts.get('task', taskId) }))
+    }, { taskIds, read: () => synchronized })
+  })
   handle('tasks:search', (_event, query) => repository.actions.search(query))
   handle('tasks:list', (_event, query) => repository.tasks.listTasks((query ?? {}) as TaskQuery))
   handle('tasks:create', (_event, input) => changed(repository.tasks.createTask(object<CreateTaskInput>(input, '任务'))))

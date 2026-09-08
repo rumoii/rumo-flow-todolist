@@ -17,19 +17,21 @@
     "test:e2e": "playwright test",
     "test:desktop": "pnpm build && playwright test --config tests/electron.config.ts",
     "test:watch": "vitest",
+    "check:release": "node scripts/check-update-release.mjs",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
+    "electron-updater": "6.8.9",
     "vue": "3.5.41"
   },
   "devDependencies": {
     "@electron/rebuild": "4.2.0",
     "@playwright/test": "1.55.0",
-    "@vue/test-utils": "2.4.6",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "24.9.0",
     "@vitejs/plugin-vue": "6.0.8",
+    "@vue/test-utils": "2.4.6",
     "electron": "44.0.0",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
@@ -42,6 +44,7 @@
   },
   "build": {
     "appId": "com.rumo.flow.todolist",
+    "publish": { "provider": "github", "owner": "rumoii", "repo": "rumo-flow-todolist", "releaseType": "release" },
     "productName": "Rumo-Flow",
     "artifactName": "rumo-flow-todolist-${version}-${arch}.${ext}",
     "directories": { "output": "release" },

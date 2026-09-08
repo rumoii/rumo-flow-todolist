@@ -1,4 +1,4 @@
-import type { ArrangeTaskInput, DraftKind, DraftSnapshot, DraftWrite, LifecycleResume, Task, TodoApi } from '../../src/shared/contracts'
+import type { ArrangeTaskInput, BatchTaskInput, DraftKind, DraftSnapshot, DraftWrite, LifecycleResume, Task, TodoApi } from '../../src/shared/contracts'
 
 export function installArrangementFixture() {
   const today = new Date().toLocaleDateString('sv-SE')
@@ -16,7 +16,7 @@ export function installArrangementFixture() {
     task('week', '阅读架构设计资料', { plan: plan('week', today) }),
     task('unplanned', '一个尚未安排的想法', {}),
   ]
-  const settings = { theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
+  const settings = { automaticUpdateChecks: true, theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
   const records = new Map<string, DraftSnapshot>()
   const clone = <Value>(value: Value): Value => JSON.parse(JSON.stringify(value))
   let prepare: (() => Promise<void>) | undefined
@@ -25,10 +25,20 @@ export function installArrangementFixture() {
   const get = async (kind: DraftKind, key: string): Promise<DraftSnapshot> => clone({ generation: 'browser-fixture', revision: 0, record: null, ...records.get(`${kind}:${key}`), baseUpdatedAt: tasks.find(task => task.id === key)?.updatedAt ?? null })
   const api = {
     tasks: {
+      batch: async (input: BatchTaskInput) => {
+        const selected = input.targets.map(target => tasks.find(task => task.id === target.id)!)
+        if (input.generation !== 'browser-fixture' || selected.some((task, index) => task.updatedAt !== input.targets[index].updatedAt)) throw new Error('任务已变化')
+        for (const task of selected) {
+          if (input.action.kind === 'complete') task.status = 'completed'
+          else if (input.action.kind === 'remove') task.deletedAt = new Date().toISOString()
+          else if (input.action.kind === 'plan') task.plan = input.action.plan
+        }
+        changed?.()
+      },
       list: async () => clone(tasks.filter(task => !task.deletedAt)),
       create: async (input: Partial<Task>) => { const created = task(crypto.randomUUID(), input.title!, input); tasks.push(created); changed?.(); return clone(created) },
       arrange: async (input: ArrangeTaskInput) => {
-        let synchronizedTask: LifecycleResume['synchronizedTask']
+        let synchronizedTasks: LifecycleResume['synchronizedTasks']
         try {
           await prepare?.()
           const current = tasks.find(task => task.id === input.taskId)!
@@ -43,11 +53,11 @@ export function installArrangementFixture() {
             current.plan = nextPlan
           }
           current.updatedAt = new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString()
-          synchronizedTask = { task: clone(current), snapshot: await get('task', current.id) }
+          synchronizedTasks = [{ task: clone(current), snapshot: await get('task', current.id) }]
           changed?.()
           return clone(current)
         }
-        finally { resume?.({ replaced: false, synchronizedTask }) }
+        finally { resume?.({ replaced: false, synchronizedTasks }) }
       },
       update: async (id: string, input: Partial<Task>) => { const current = tasks.find(task => task.id === id)!; Object.assign(current, input, { updatedAt: new Date().toISOString() }); changed?.(); return clone(current) },
       complete: async (id: string) => { tasks.find(task => task.id === id)!.status = 'completed'; changed?.() },

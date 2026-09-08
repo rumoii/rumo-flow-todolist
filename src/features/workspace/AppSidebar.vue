@@ -57,8 +57,8 @@ const { completedTodayCount, settingsOpen, tasks, tags, savedFilters, activeView
 <SelectField v-model="newFilterListId" aria-label="筛选清单" :options="[{ value: 'any', label: '任意清单' }, { value: 'inbox', label: '收集箱' }, ...sortedLists.map(list => ({ value: list.id, label: list.name }))]" />
 </div>
               <div class="filter-field-row">
-<span>优先级</span>
-<SelectField v-model="newFilterPriority" aria-label="筛选优先级" :options="[{ value: 'any', label: '任意优先级' }, { value: 'high', label: 'P1' }, { value: 'medium', label: 'P2' }, { value: 'low', label: 'P3' }, { value: 'none', label: '无' }]" />
+<span>重要程度</span>
+<SelectField v-model="newFilterPriority" aria-label="筛选重要程度" :options="[{ value: 'any', label: '任意重要程度' }, { value: 'high', label: '高' }, { value: 'medium', label: '中' }, { value: 'low', label: '低' }, { value: 'none', label: '未设置' }]" />
 </div>
               <div class="filter-field-row">
 <span>标签</span>

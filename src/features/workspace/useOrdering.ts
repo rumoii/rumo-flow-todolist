@@ -57,10 +57,10 @@ export function useOrdering({ hasApi, tasks, selectedTaskId, detailDraft, notify
       return
     try {
       await moveTaskToGroupEnd(task, task.isPinned, priority)
-      notify(`已设为${priorityLabel(priority)}`)
+      notify(`重要程度：${priorityLabel(priority)}`)
     }
     catch {
-      notify('优先级更新失败')
+      notify('重要程度更新失败')
     }
   }
   function startTaskDrag(event: DragEvent, task: Task) {
@@ -79,7 +79,7 @@ export function useOrdering({ hasApi, tasks, selectedTaskId, detailDraft, notify
       return
     try {
       if (dragged.priority !== target.priority) {
-        notify('跨优先级拖动不会改变优先级')
+        notify('跨重要程度拖动不会改变重要程度')
         return
       }
       const ordered = taskGroupFor(dragged, target.isPinned, target.priority)

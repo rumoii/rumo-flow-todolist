@@ -6,7 +6,7 @@ import { usePreferences } from '../src/features/workspace/usePreferences'
 import type { AppSettings, TodoApi } from '../src/shared/contracts'
 import { titleBarAppearance } from '../electron/window-appearance'
 
-const initial: AppSettings = { theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
+const initial: AppSettings = { automaticUpdateChecks: true, theme: 'light', density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' }
 
 describe('preference save boundary', () => {
   afterEach(() => { delete document.documentElement.dataset.theme; delete document.documentElement.dataset.density; delete window.todoApi })

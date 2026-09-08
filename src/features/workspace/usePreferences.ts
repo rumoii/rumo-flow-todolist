@@ -7,7 +7,7 @@ interface Dependencies {
 export function usePreferences({ loadData, notify }: Dependencies) {
   const hasApi = () => Boolean(window.todoApi)
   const initialTheme = new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'
-  const settings = ref<AppSettings>({ theme: initialTheme, density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })
+  const settings = ref<AppSettings>({ automaticUpdateChecks: true, theme: initialTheme, density: 'comfortable', globalShortcut: 'Ctrl+Alt+Space', dailyVideoLimit: 3, reviewReminderEnabled: true, reviewReminderTime: '22:00' })
   let savedSettings: AppSettings = { ...settings.value }
   const desktopStatus = ref<DesktopStatus>({ globalShortcut: 'Ctrl+Alt+Space', globalShortcutRegistered: false })
   const settingsOpen = ref(false)
