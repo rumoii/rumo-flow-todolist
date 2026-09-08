@@ -1,6 +1,6 @@
 {
   "name": "rumo-flow-todolist",
-  "version": "0.8.0",
+  "version": "0.9.0-rc.1",
   "private": true,
   "type": "module",
   "description": "Rumo-Flow 极简个人计划与待办",
