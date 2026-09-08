@@ -50,7 +50,7 @@ pnpm package         # Build the Windows installer
 
 ## Installer
 
-Windows installers are published as GitHub Releases rather than committed to the repository. The current version is `v0.8.0`, a stable release with drafts, task planning, linked Flow actions and settings improvements. Stable publication does not imply installer acceptance: actual installation, in-place upgrade and uninstallation remain unverified. Installers are unsigned, so Windows SmartScreen may display a warning. Download from the project Release page and verify the published SHA-256 value. See the [v0.8.0 release notes](docs/releases/v0.8.0.md) for changes, data-format restrictions and rollback requirements.
+Windows installers are published as GitHub Releases rather than committed to the repository. The latest stable version remains `v0.8.0`; the current source version is `v0.9.0-rc.2`, a pre-release with update settings, in-list batch actions and a Flow history journal with backdated entries. Install this RC manually: the update checker only considers stable releases. A local development package has passed an authorized manual in-place installation and startup check; the real updater download/install/restart path and uninstallation remain unverified. Installers are unsigned, so Windows SmartScreen may display a warning. Download from the project Release page and verify the published SHA-256 value. See the [RC release notes](docs/releases/v0.9.0-rc.2.md) and [v0.8.0 release notes](docs/releases/v0.8.0.md) for data-format restrictions and rollback requirements.
 
 ## Data and backups
 
