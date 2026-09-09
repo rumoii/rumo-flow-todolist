@@ -41,3 +41,9 @@ Windows、Node 24.16.0、pnpm 9，执行 `./scripts/verify-editor-experience.ps1
 ## 边界
 
 本次未生成安装包，不触碰个人安装与日常数据库，不执行真实更新安装、发布或远端 CI。迁移验证使用临时数据库，不替代用户数据升级验收。强制退出只能恢复已经成功落盘的输入；未配置变异工具，使用故障注入，不声称变异覆盖率。
+
+## rc.4 发布候选复验
+
+功能提交 `c76cdad` 后，候选版本更新为 `0.9.0-rc.4`，执行同一完整验证入口。类型检查、172 项单测、构建、56 项浏览器及 9 项隔离 Electron 测试通过，日志为 `test-results/rc4-source-verification.log`。锁文件不记录根包版本，依赖未变，不做无意义改写。新编辑体验 Electron 用例已接入现有 `RUMO_TEST_EXECUTABLE`，确保后续包内回归不会误用开发构建。
+
+本节记录发布前源码候选验证；最终发布提交、NSIS 包审计、包内桌面回归、资产哈希及远程回下载结果见 [rc.4 Release](https://github.com/rumoii/rumo-flow-todolist/releases/tag/v0.9.0-rc.4)。个人覆盖安装不在此次发布范围。

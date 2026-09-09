@@ -62,7 +62,7 @@ pnpm package         # 构建 Windows 安装包
 
 ## 安装包
 
-Windows 安装包在 GitHub Releases 提供，不纳入源码仓库。最新正式版为 `v0.8.0`；当前源码版本为预览版 `v0.9.0-rc.3`，包含更新与关于、原列表批量操作、心流历史补录与阅读，以及统一搜索和单页任务详情，不替换正式版 Latest。详见 [预览版说明](docs/releases/v0.9.0-rc.3.md) 和 [v0.8.0 发布说明](docs/releases/v0.8.0.md)。
+Windows 安装包在 GitHub Releases 提供，不纳入源码仓库。最新正式版为 `v0.8.0`；当前源码版本为预览版 `v0.9.0-rc.4`，新增任务自动保存、可靠输入草稿及离开检查，优化任务详情、心流和窄窗口体验，不替换正式版 Latest。详见 [预览版说明](docs/releases/v0.9.0-rc.4.md) 和 [v0.8.0 发布说明](docs/releases/v0.8.0.md)。
 
 隔离 Windows 安装、覆盖升级和卸载仍待验收；本地开发包的手动覆盖记录不替代本版安装包验收。安装包未签名，Windows SmartScreen 可能显示提示；请从项目 Release 页面下载并核对 SHA-256，安装前导出备份并完全退出旧程序。
 
@@ -101,7 +101,7 @@ package.json
 
 桌面测试只使用任务创建的临时 `userData`，不会访问个人数据库。浏览器测试注入内存接口，不能替代真实桌面测试。安装包安装、卸载、系统通知点击和个人数据升级应另行验收。
 
-浏览器测试默认使用独立的 5173 端口，不复用已有服务；占用时可设置 `RUMO_E2E_PORT`，例如 PowerShell 中执行 `$env:RUMO_E2E_PORT='5186'`。功能验证见 [快捷安排验证记录](docs/EVIDENCE-task-arrangement.md) 和 [计划与行动验证记录](docs/EVIDENCE-planning.md)，当前发布门禁和未验收边界见 [预览版说明](docs/releases/v0.9.0-rc.3.md)。
+浏览器测试默认使用独立的 5173 端口，不复用已有服务；占用时可设置 `RUMO_E2E_PORT`，例如 PowerShell 中执行 `$env:RUMO_E2E_PORT='5186'`。功能验证见 [编辑体验验证记录](docs/EVIDENCE-editor-experience.md) 和 [计划与行动验证记录](docs/EVIDENCE-planning.md)，当前发布门禁和未验收边界见 [预览版说明](docs/releases/v0.9.0-rc.4.md)。
 
 ### 更新与批量操作
 
