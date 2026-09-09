@@ -12,7 +12,7 @@ it('ignores obsolete searches and stops receiving changes after unmount', async 
   const history = vi.fn().mockImplementationOnce(() => new Promise<FlowHistoryPage>(resolve => { resolveFirst = resolve })).mockResolvedValue({ entries: [], nextCursor: null })
   window.todoApi = { flow: { history }, desktop: { onDataChanged: () => unsubscribe } } as unknown as TodoApi
   let state!: ReturnType<typeof useFlowHistory>
-  const wrapper = mount(defineComponent({ setup() { state = useFlowHistory(ref(true), ref('2026-09-08')); return () => null } }))
+  const wrapper = mount(defineComponent({ setup() { state = useFlowHistory(ref(true), ref('2026-09-08'), ref('')); return () => null } }))
   state.filters.keyword = '新的搜索'
   await vi.advanceTimersByTimeAsync(300)
   await flushPromises()

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useWorkspaceContext } from './context'
 import SelectField from '../../components/SelectField.vue'
-const { completedTodayCount, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon } = useWorkspaceContext()
+const { workspaceSearch, completedTodayCount, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon } = useWorkspaceContext()
 </script>
 
 <template>
@@ -14,6 +14,7 @@ const { completedTodayCount, settingsOpen, tasks, tags, savedFilters, activeView
 <small>Todo List</small>
 </span>
 </div>
+      <button class="workspace-search-trigger" @click="workspaceSearch.show()"><span aria-hidden="true">⌕</span> 搜索 <kbd>Ctrl K</kbd></button>
       <button class="primary-action" @click="focusQuickAdd">
 <span aria-hidden="true">＋</span> 新建任务 <kbd>Ctrl N</kbd>
 </button>
@@ -29,7 +30,6 @@ const { completedTodayCount, settingsOpen, tasks, tags, savedFilters, activeView
 <span class="nav-icon" aria-hidden="true">▦</span> 本周</button>
         <button :class="['nav-item', { active: activeView === 'month' }]" @click="activeView = 'month'"><span class="nav-icon" aria-hidden="true">▦</span> 本月</button>
         <button :class="['nav-item', { active: activeView === 'overdue' }]" @click="activeView = 'overdue'"><span class="nav-icon" aria-hidden="true">◷</span> 已逾期</button>
-        <button :class="['nav-item', { active: activeView === 'history' }]" @click="activeView = 'history'"><span class="nav-icon" aria-hidden="true">⌕</span> 历史搜索</button>
         <button :class="['nav-item', { active: activeView === 'trash' }]" @click="activeView = 'trash'"><span class="nav-icon" aria-hidden="true">♲</span> 回收站</button>
         <button :class="['nav-item', { active: activeView === 'completed' }]" @click="activeView = 'completed'">
 <span class="nav-icon" aria-hidden="true">✓</span> 已完成 <em>{{ completedCount }}</em>

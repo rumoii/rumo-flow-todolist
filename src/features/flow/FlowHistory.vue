@@ -3,9 +3,10 @@ import { nextTick, ref, toRef, watch } from 'vue'
 import FlowHistoryDay from './FlowHistoryDay.vue'
 import { useFlowHistory } from './useFlowHistory'
 const props = defineProps<{ visible: boolean; today: string }>()
-const emit = defineEmits<{ edit: [date: string]; backfill: []; ready: [] }>()
+const emit = defineEmits<{ edit: [date: string]; backfill: []; ready: []; search: [] }>()
+const keyword = defineModel<string>('keyword', { default: '' })
 const filtersOpen = ref(false)
-const { filters, entries, groups, nextCursor, loading, error, expanded, days, dayErrors, dayLoading, toggle, load, loadDay, selectMonth, recent } = useFlowHistory(toRef(props, 'visible'), toRef(props, 'today'))
+const { filters, entries, groups, nextCursor, loading, error, expanded, days, dayErrors, dayLoading, toggle, load, loadDay, selectMonth, recent } = useFlowHistory(toRef(props, 'visible'), toRef(props, 'today'), keyword)
 const weekday = (date: string) => new Date(date + 'T12:00:00').toLocaleDateString('zh-CN', { weekday: 'short' })
 watch(loading, async value => { if (!value && props.visible) { await nextTick(); emit('ready') } })
 const monthLabel = (month: string) => month.slice(0, 4) + ' 年 ' + Number(month.slice(5)) + ' 月'
@@ -19,7 +20,7 @@ function collapse(date: string) {
   <section class="flow-journal" aria-label="心流历史记录">
     <header class="journal-heading"><div><span class="journal-eyebrow">记录与回望</span><h2>留给未来的自己</h2><p>重新读一读，那些看过、想过和写下的事。</p></div><button class="secondary-button" @click="emit('backfill')">补记往日</button></header>
     <div class="journal-tools">
-      <input v-model="filters.keyword" type="search" aria-label="搜索心流历史" placeholder="搜索输入、思考与复盘" maxlength="500" />
+      <div v-if="filters.keyword" class="keyword-filter"><button @click="emit('search')">关键词：{{ filters.keyword }}</button><button aria-label="清除心流关键词筛选" @click="keyword = ''">×</button></div>
       <input type="month" aria-label="历史月份" :value="filters.from.slice(0,7) === filters.to.slice(0,7) ? filters.from.slice(0,7) : ''" :max="today.slice(0,7)" @change="selectMonth(($event.target as HTMLInputElement).value)" />
       <button class="journal-filter" :aria-expanded="filtersOpen" aria-controls="journal-filters" @click="filtersOpen = !filtersOpen">筛选{{ filters.pendingOnly || filters.reviewedOnly ? ' · 已启用' : '' }}</button>
       <button class="journal-filter" @click="recent">最近 30 天</button>

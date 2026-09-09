@@ -1,3 +1,4 @@
+import { filterCurrentList } from './search-helpers'
 import { expect, test } from '@playwright/test'
 import { installArrangementFixture } from './arrangement-fixture'
 
@@ -29,9 +30,9 @@ test('quick plans, focus, reminders and keyboard dismissal share one task flow',
   await page.locator('[data-task-id="due"]').getByRole('button', { name: '安排到今天', exact: true }).click()
   await expect(page.locator('.today-other')).toContainText('提交项目报告')
   expect(await page.evaluate(() => window.todoApi.tasks.list().then(tasks => tasks.find(task => task.id === 'due')))).toMatchObject({ dueTime: '23:59', reminderMinutesBefore: 15 })
-  await page.getByPlaceholder('搜索任务').fill('不存在')
+  await filterCurrentList(page, '不存在')
   await expect(page.locator('.today-reminders')).toHaveCount(0)
-  await page.getByPlaceholder('搜索任务').fill('')
+  await filterCurrentList(page, '')
   await page.locator('[data-task-id="focus"]').getByRole('button', { name: '#工作', exact: true }).click()
   await expect(page.locator('.today-other [data-task-id="ordinary"]')).toHaveCount(0)
   await expect(page.locator('[data-task-id="past"]')).toHaveCount(0)

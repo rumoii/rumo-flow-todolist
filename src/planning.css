@@ -4,7 +4,7 @@
 .planning-panel summary{cursor:pointer;font-weight:600;padding:4px 0}.planning-panel p,.planning-panel small{color:var(--muted)}
 .planning-controls,.plan-field,.quick-suggestions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:10px 0}.planning-controls button,.planning-controls select,.plan-field select,.plan-field input,.quick-suggestions button{padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}
 .planning-controls button:hover,.quick-suggestions button:hover{background:var(--accent-soft)}.planning-controls button:disabled{opacity:.45;cursor:not-allowed}
-.history-hit{display:flex;align-items:center;gap:12px;width:100%;padding:14px 8px;border-bottom:1px solid var(--border);text-align:left;color:var(--text)}.history-hit span{display:grid;gap:6px;min-width:0}.history-hit small{overflow-wrap:anywhere}.history-query{width:100%;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}
+
 .action-form{display:grid;gap:10px;margin:12px 0}.action-form input{padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}.source-link{display:block;text-align:left;padding:8px 0;color:var(--accent)}
 .action-form fieldset{border:0;padding:0;display:grid;gap:12px;min-width:0}.action-form fieldset>input{width:100%;box-sizing:border-box}.action-form fieldset label{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.action-form select{padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}
 .video-entry.navigation-target{outline:2px solid #856af9;outline-offset:4px;border-radius:8px}

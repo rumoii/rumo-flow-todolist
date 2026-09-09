@@ -9,7 +9,7 @@ const { pendingDelete, pendingListDelete, listDeletePolicy, shortcutsOpen, toast
 <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title" tabindex="-1">
 <div class="dialog-icon">!</div>
 <h2 id="delete-title">删除这个任务？</h2>
-<p>“{{ pendingDelete.title }}”及其子任务将被永久删除，此操作无法撤销。</p>
+<p>“{{ pendingDelete.title }}”及其子任务将移入回收站，可以恢复。</p>
 <div class="dialog-actions">
 <button class="cancel-button" @click="pendingDelete = null">取消</button>
 <button class="delete-button" @click="removeTask(pendingDelete); pendingDelete = null">确认删除</button>
@@ -51,6 +51,10 @@ const { pendingDelete, pendingListDelete, listDeletePolicy, shortcutsOpen, toast
 <div class="shortcut-row">
 <span>打开快捷捕获</span>
 <kbd>Ctrl N</kbd>
+</div>
+<div class="shortcut-row">
+<span>搜索全部内容或当前列表</span>
+<kbd>Ctrl K</kbd>
 </div>
 <div class="shortcut-row">
 <span>全局快速捕获</span>

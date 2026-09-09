@@ -4,7 +4,7 @@ import { batchSelectionKey, useBatchSelection } from './useBatchSelection'
 import TaskSelection from './TaskSelection.vue'
 import BatchToolbar from './BatchToolbar.vue'
 import TrashPage from './TrashPage.vue'
-import HistorySearch from './HistorySearch.vue'
+import TaskMenu from './TaskMenu.vue'
 import QuickAddHints from '../../components/QuickAddHints.vue'
 import { useWorkspaceContext } from './context'
 import SelectField from '../../components/SelectField.vue'
@@ -14,7 +14,7 @@ import TaskArrangementDialog from './TaskArrangementDialog.vue'
 import FlowView from '../../components/FlowView.vue'
 import TagPage from './TagPage.vue'
 const { totalStatus, totalDeadline, unplannedOnly, dueToday, pastPlanned, tags, lists, tasks, activeView, quickTitle, quickInput, search, groupBy, temporaryTagId, loading, todayIso, selectTask, viewTitle, viewHint, taskReorderEnabled, draggedTaskId, endTaskDrag, dropTaskInZone, onWeekDrop, isTodayTask, filteredTasks, pinnedTasks, groupedRegularTasks, completedTodayCount, temporaryTag, emptyState, priorityCode, priorityClass, createTask, toggleTask, weekDates, tasksForDate, rumoFlowIcon } = useWorkspaceContext()
-const { quickPlanHint } = useWorkspaceContext()
+const { workspaceSearch, quickPlanHint } = useWorkspaceContext()
 const { drafts, closeMenus } = useWorkspaceContext()
 const dueExpanded = ref(false)
 const pastExpanded = ref(false)
@@ -37,26 +37,24 @@ async function exitSelection() { batch.exit(); await nextTick(); selectionTrigge
 <h1 tabindex="-1">{{ viewTitle }}</h1>
 </div>
 </Transition>
-<div v-if="!['flow', 'tags', 'trash', 'history'].includes(activeView)" class="header-actions">
+<div v-if="!['flow', 'tags', 'trash'].includes(activeView)" class="header-actions">
 <button v-if="!batch.active.value" ref="selectionTrigger" class="secondary-button" :disabled="batch.busy.value || !batch.available.value.length" @click="batch.enter">选择任务</button>
 <label v-if="activeView !== 'week' && activeView !== 'month'" class="group-select">
 <span>分组</span>
 <SelectField v-model="groupBy" aria-label="任务分组" :options="[{ value: 'none', label: '不分组' }, { value: 'list', label: '按清单' }, { value: 'priority', label: '按重要程度' }, { value: 'tag', label: '按标签' }]" />
 </label>
-<label class="search-box">
-<span>⌕</span>
-<input v-model="search" placeholder="搜索任务" />
-</label>
+
 </div>
 </header>
       <section :class="['content-inner', { 'flow-content-inner': activeView === 'flow' }]" :inert="batch.busy.value">
         <TagPage v-if="activeView === 'tags'" />
         <TrashPage v-if="activeView === 'trash'" />
-        <HistorySearch v-if="activeView === 'history'" />
+
         <KeepAlive>
-<FlowView v-if="activeView === 'flow'" :today-completed-count="completedTodayCount" :today-pending-count="tasks.filter(isTodayTask).length" />
+<FlowView v-model:history-keyword="workspaceSearch.historyKeyword.value" @history-visible="workspaceSearch.historyVisible.value = $event" @search-history="workspaceSearch.show(true)" v-if="activeView === 'flow'" :today-completed-count="completedTodayCount" :today-pending-count="tasks.filter(isTodayTask).length" />
 </KeepAlive>
-        <template v-if="!['flow', 'tags', 'trash', 'history'].includes(activeView)">
+        <template v-if="!['flow', 'tags', 'trash'].includes(activeView)">
+        <div v-if="search" class="keyword-filter"><button @click="workspaceSearch.show(true)">关键词：{{ search }}</button><button aria-label="清除关键词筛选" @click="search = ''">×</button></div>
         <div class="quick-add">
 <span class="quick-icon">＋</span>
 <input ref="quickInput" v-model="quickTitle" placeholder="添加一个任务，按 Enter 保存…" @keydown.enter="createTask()" />
@@ -96,6 +94,7 @@ async function exitSelection() { batch.exit(); await nextTick(); selectionTrigge
 <TaskPlanButton :task="task" />
 <small v-if="task.focusDate">★ 当日重点</small>
 </span>
+<TaskMenu :task="task" />
 </article>
 </TransitionGroup>
 </div>

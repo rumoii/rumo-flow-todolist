@@ -10,13 +10,14 @@ import { parseQuickAdd } from '../../shared/quick-add'
 import { ensureTags } from '../../shared/tag-utils'
 import { matchesTaskFilter } from '../../shared/task-filter'
 import type { CreateTaskInput, SavedFilter, Tag, Task, TaskList, TaskPriority } from '../../shared/contracts'
+import { useWorkspaceSearch } from './useWorkspaceSearch'
 import { useDetails } from './useDetails'
 import { useOrdering } from './useOrdering'
 import { useTaskArrangement } from './useTaskArrangement'
 import { usePreferences } from './usePreferences'
 import { useTagManagement } from './useTagManagement'
 export function useWorkspace() {
-  type View = 'all' | 'inbox' | 'today' | 'month' | 'overdue' | 'trash' | 'history' | 'week' | 'completed' | 'flow' | 'tags' | `list:${string}` | `filter:${string}`
+  type View = 'all' | 'inbox' | 'today' | 'month' | 'overdue' | 'trash' | 'week' | 'completed' | 'flow' | 'tags' | `list:${string}` | `filter:${string}`
   const drafts = inject(draftCoordinatorKey, null) ?? createDraftCoordinator(window.todoApi)
   provide(draftCoordinatorKey, drafts)
   const { settings, desktopStatus, settingsOpen, settingsSaving, exportBackup, importBackup, applySettings, saveSettings, adoptSettings } = usePreferences({ loadData, notify })
@@ -147,8 +148,9 @@ export function useWorkspace() {
   }
   const activeListId = computed(() => activeView.value.startsWith('list:') ? activeView.value.slice(5) : null)
   const activeFilter = computed(() => activeView.value.startsWith('filter:') ? savedFilters.value.find(filter => filter.id === activeView.value.slice(7)) : null)
-  const viewTitle = computed(() => ({ inbox: '收集箱', today: '今天', all: '总计划', month: '本月', overdue: '已逾期', trash: '回收站', history: '历史搜索', week: '本周', completed: '已完成', flow: '心流', tags: '标签管理' }[activeView.value as string] || activeFilter.value?.name || lists.value.find(list => list.id === activeListId.value)?.name || '待办'))
-  const viewHint = computed(() => activeView.value === 'today' ? `${currentDate.value.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })} · 把注意力放在最重要的事上` : activeView.value === 'tags' ? '用标签串联任务，让分类更轻松' : activeView.value === 'flow' ? '让输入慢下来，把思考留下来' : activeView.value === 'all' ? '计划决定何时行动，截止日期决定何时到期' : activeView.value === 'week' ? '周一至周日的执行计划' : activeView.value === 'month' ? '从月目标逐步安排到周和日' : activeView.value === 'trash' ? '恢复误删内容，或确认永久删除' : activeView.value === 'history' ? '在已保存内容中找回思考和行动' : activeView.value === 'overdue' ? '按截止日期和时间检查逾期任务' : activeView.value === 'completed' ? '已经完成的任务' : activeFilter.value ? '按保存的条件自动汇总任务' : '这个清单中的任务')
+  const viewTitle = computed(() => ({ inbox: '收集箱', today: '今天', all: '总计划', month: '本月', overdue: '已逾期', trash: '回收站', week: '本周', completed: '已完成', flow: '心流', tags: '标签管理' }[activeView.value as string] || activeFilter.value?.name || lists.value.find(list => list.id === activeListId.value)?.name || '待办'))
+  const viewHint = computed(() => activeView.value === 'today' ? `${currentDate.value.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })} · 把注意力放在最重要的事上` : activeView.value === 'tags' ? '用标签串联任务，让分类更轻松' : activeView.value === 'flow' ? '让输入慢下来，把思考留下来' : activeView.value === 'all' ? '计划决定何时行动，截止日期决定何时到期' : activeView.value === 'week' ? '周一至周日的执行计划' : activeView.value === 'month' ? '从月目标逐步安排到周和日' : activeView.value === 'trash' ? '恢复误删内容，或确认永久删除' : activeView.value === 'overdue' ? '按截止日期和时间检查逾期任务' : activeView.value === 'completed' ? '已经完成的任务' : activeFilter.value ? '按保存的条件自动汇总任务' : '这个清单中的任务')
+  const workspaceSearch = useWorkspaceSearch(activeView, viewTitle, search)
   const taskReorderEnabled = computed(() => !search.value.trim() && (activeView.value === 'all' || Boolean(activeListId.value)))
   const { draggedTaskId, draggedListId, taskDropTargetId, listDropTargetId, persistTaskOrder, taskGroupFor, organizeTask, moveTaskToGroupEnd, setTaskPinned, setTaskPriority, startTaskDrag, endTaskDrag, dropTaskBefore, dropTaskInZone, persistListOrder, listGroupFor, organizeList, moveListToGroupEnd, setListPinned, startListDrag, endListDrag, dropListBefore, onWeekDrop } = useOrdering({ hasApi, tasks, selectedTaskId, detailDraft, notify, closeMenus, priorityLabel, taskReorderEnabled, lists, arrangeTask: arrangement.arrangeTask })
   function isTodayTask(task: Task) {
@@ -349,6 +351,13 @@ export function useWorkspace() {
     return; toastAction.value = null; await action.run(); }
   function isTypingTarget(target: EventTarget | null) { const element = target as HTMLElement | null; return Boolean(element?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(element?.tagName || '')); }
   function handleShortcut(event: KeyboardEvent) {
+    if (event.defaultPrevented) return
+    if (event.ctrlKey && event.key.toLowerCase() === 'k') {
+      event.preventDefault()
+      if (!settingsOpen.value && !detailOpen.value && !pendingDelete.value && !pendingListDelete.value && !pendingTagDelete.value && !shortcutsOpen.value && !arrangement.state.task) { closeMenus(); workspaceSearch.show() }
+      return
+    }
+    if (workspaceSearch.open.value) return
     if (event.ctrlKey && event.key.toLowerCase() === 'n') {
       event.preventDefault()
       void focusQuickAdd()
@@ -359,6 +368,7 @@ export function useWorkspace() {
     if (event.key === '?')
       shortcutsOpen.value = true
     if (event.key === 'Escape') {
+      if (openTaskMenuId.value) { closeMenus(); return }
       closeMenus()
       if (shortcutsOpen.value)
         shortcutsOpen.value = false
@@ -434,5 +444,5 @@ export function useWorkspace() {
     removeFlowListener = window.todoApi.desktop.onOpenFlow(() => { activeView.value = 'flow'; detailOpen.value = false; settingsOpen.value = false; })
   } })
   onBeforeUnmount(() => { window.removeEventListener('keydown', handleShortcut); removeDesktopListener?.(); removeFlowListener?.(); removeDataListener?.(); window.clearTimeout(toastTimer); })
-  return { arrangement, quickPlanHint, loadData, totalStatus, totalDeadline, unplannedOnly, dueToday, pastPlanned, drafts, closeMenus, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon, settings, settingsSaving, desktopStatus, exportBackup, importBackup, saveSettings, shortcutsOpen, newTagName, managedTagDrafts, pendingTagDelete, tagsSaving, createManagedTag, updateManagedTag, deleteManagedTag, trapDialogFocus, detailLoading, search, pendingDelete, selectedTaskId, detailOpen, detailDraft, tagQuery, newSubtaskTitle, activeTask, subtasks, visibleDetailTags, canCreateDetailTag, closeDetail, discardTaskDraft, createTagFromDetail, saveDetail, addSubtask, toggleTask, quickTitle, quickInput, groupBy, temporaryTagId, loading, todayIso, selectTask, viewTitle, viewHint, taskReorderEnabled, draggedTaskId, endTaskDrag, dropTaskInZone, onWeekDrop, filteredTasks, pinnedTasks, groupedRegularTasks, completedTodayCount, temporaryTag, emptyState, priorityCode, priorityClass, createTask, weekDates, tasksForDate, lists, openTaskMenuId, taskDropTargetId, setTaskPinned, setTaskPriority, startTaskDrag, dropTaskBefore, dateLabel, priorityLabel, filterByTag, toggleTaskMenu, pendingListDelete, listDeletePolicy, toast, toastAction, removeTask, confirmListDelete, runToastAction }
+  return { workspaceSearch, arrangement, quickPlanHint, loadData, totalStatus, totalDeadline, unplannedOnly, dueToday, pastPlanned, drafts, closeMenus, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon, settings, settingsSaving, desktopStatus, exportBackup, importBackup, saveSettings, shortcutsOpen, newTagName, managedTagDrafts, pendingTagDelete, tagsSaving, createManagedTag, updateManagedTag, deleteManagedTag, trapDialogFocus, detailLoading, search, pendingDelete, selectedTaskId, detailOpen, detailDraft, tagQuery, newSubtaskTitle, activeTask, subtasks, visibleDetailTags, canCreateDetailTag, closeDetail, discardTaskDraft, createTagFromDetail, saveDetail, addSubtask, toggleTask, quickTitle, quickInput, groupBy, temporaryTagId, loading, todayIso, selectTask, viewTitle, viewHint, taskReorderEnabled, draggedTaskId, endTaskDrag, dropTaskInZone, onWeekDrop, filteredTasks, pinnedTasks, groupedRegularTasks, completedTodayCount, temporaryTag, emptyState, priorityCode, priorityClass, createTask, weekDates, tasksForDate, lists, openTaskMenuId, taskDropTargetId, setTaskPinned, setTaskPriority, startTaskDrag, dropTaskBefore, dateLabel, priorityLabel, filterByTag, toggleTaskMenu, pendingListDelete, listDeletePolicy, toast, toastAction, removeTask, confirmListDelete, runToastAction }
 }

@@ -5,6 +5,7 @@ import './styles.css'
 import './motion.css'
 import './preferences.css'
 import './planning.css'
+import './workspace-tools.css'
 import { createDraftCoordinator, draftCoordinatorKey } from './composables/draft-coordinator'
 
 const isQuickCapture = new URLSearchParams(location.search).get('capture') === '1'

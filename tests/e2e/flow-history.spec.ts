@@ -1,3 +1,4 @@
+import { filterCurrentList } from './search-helpers'
 import { expect, test } from '@playwright/test'
 import { installArrangementFixture } from './arrangement-fixture'
 import { installFlowHistoryFixture } from './flow-history-fixture'
@@ -28,10 +29,10 @@ test('journal reads multiple dates, paginates, filters and returns from editing 
   await expect(page.locator('.journal-entry')).toHaveCount(45)
   await expect(page.locator('.history-reading')).toHaveCount(2)
   await expect(first.getByRole('button', { name: '编辑这一天' })).toBeInViewport()
-  await page.getByLabel('搜索心流历史').fill('不存在的内容')
+  await filterCurrentList(page, '不存在的内容')
   await expect(page.locator('.journal-entry')).toHaveCount(0)
   await expect(page.getByText('这段时间没有符合条件的记录。可以换个日期，或补记往日。')).toBeVisible()
-  await page.getByLabel('搜索心流历史').fill('')
+  await filterCurrentList(page, '')
   await expect(page.locator('.journal-entry')).toHaveCount(30)
   await page.getByLabel('有待补思考').check()
   await expect(page.locator('.journal-entry')).toHaveCount(15)

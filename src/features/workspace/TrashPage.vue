@@ -39,6 +39,6 @@ onBeforeUnmount(() => { sequence++; unsubscribe?.() })
     <p>删除后保留 30 天。恢复父任务时，仅恢复同次删除的子任务。永久删除父任务也会删除其回收站子任务，无法撤销。</p>
     <div class="planning-controls"><button @click="load">刷新</button><button @click="selected = tasks.map(task => task.id)">全选</button><button :disabled="busy || !selected.length" @click="apply('recover')">恢复所选</button><button :disabled="busy || !selected.length" @click="apply('purge')">{{ confirm ? '确认永久删除，无法撤销' : '永久删除' }}</button><button v-if="confirm" @click="confirm = false">取消</button></div>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="!tasks.length">回收站为空</p>
-    <label v-for="task in tasks" :key="task.id" class="history-hit"><input v-model="selected" type="checkbox" :value="task.id" @change="confirm = false" /><span>{{ task.title }}<small>删除于 {{ new Date(task.deletedAt!).toLocaleString() }}</small></span></label>
+    <label v-for="task in tasks" :key="task.id" class="trash-entry"><input v-model="selected" type="checkbox" :value="task.id" @change="confirm = false" /><span>{{ task.title }}<small>删除于 {{ new Date(task.deletedAt!).toLocaleString() }}</small></span></label>
   </section>
 </template>

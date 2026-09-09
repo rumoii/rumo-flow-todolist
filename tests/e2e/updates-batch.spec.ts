@@ -1,3 +1,4 @@
+import { filterCurrentList } from './search-helpers'
 import { expect, test } from '@playwright/test'
 import { installArrangementFixture } from './arrangement-fixture'
 import type { UpdateState } from '../../src/shared/updates'
@@ -74,7 +75,7 @@ test('week cards use the same selection and filter changes clear it', async ({ p
   await page.getByRole('checkbox', { name: '选择任务 整理项目资料' }).check()
   await expect(page.getByRole('region', { name: '批量操作' })).toContainText('已选 1 项')
   await expect(page.locator('.task-card[data-task-id="ordinary"]')).toHaveAttribute('draggable', 'false')
-  await page.getByPlaceholder('搜索任务').fill('架构')
+  await filterCurrentList(page, '架构')
   await expect(page.getByRole('region', { name: '批量操作' })).toHaveCount(0)
   await page.getByRole('button', { name: '选择任务', exact: true }).click()
   await page.getByRole('button', { name: '选择当前范围' }).click()

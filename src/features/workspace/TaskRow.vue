@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { Task, TaskPriority } from '../../shared/contracts'
+import type { Task } from '../../shared/contracts'
+import TaskMenu from './TaskMenu.vue'
 import TaskPlanButton from './TaskPlanButton.vue'
 import { useWorkspaceContext } from './context'
 import TaskSelection from './TaskSelection.vue'
@@ -9,7 +10,7 @@ defineProps<{
   task: Task
   reminder?: boolean
 }>()
-const { arrangement, lists, tags, activeView, openTaskMenuId, todayIso, selectTask, taskReorderEnabled, taskDropTargetId, setTaskPinned, setTaskPriority, startTaskDrag, endTaskDrag, dropTaskBefore, dateLabel, priorityLabel, priorityCode, priorityClass, filterByTag, toggleTask, closeMenus, toggleTaskMenu } = useWorkspaceContext()
+const { arrangement, lists, activeView, todayIso, selectTask, taskReorderEnabled, taskDropTargetId, startTaskDrag, endTaskDrag, dropTaskBefore, dateLabel, priorityLabel, priorityCode, priorityClass, filterByTag, toggleTask } = useWorkspaceContext()
 </script>
 <template>
 <div :data-task-id="task.id" :class="['task-row', { 'drag-target': taskDropTargetId === task.id }]" :draggable="taskReorderEnabled && !batch?.active.value" @dragstart="!batch?.active.value && startTaskDrag($event, task)" @dragend="endTaskDrag" @dragover.prevent="!batch?.active.value && (taskDropTargetId = task.id)" @drop.stop="!batch?.active.value && dropTaskBefore(task)">
@@ -34,13 +35,6 @@ const { arrangement, lists, tags, activeView, openTaskMenuId, todayIso, selectTa
 </div>
 <button v-if="reminder" class="reminder-arrange" :disabled="arrangement.state.busy" @click.stop="arrangement.open(task, $event, { kind: 'plan', target: 'today' })">安排到今天</button>
 <button v-else-if="activeView === 'today' && task.status === 'active' && !task.parentTaskId" class="task-focus-button" title="今日重点：今天优先处理，不改变重要程度" :class="{ focused: task.focusDate === todayIso }" :aria-label="task.focusDate === todayIso ? `取消今日重点 ${task.title}` : `设为今日重点 ${task.title}`" :aria-pressed="task.focusDate === todayIso" :disabled="arrangement.state.busy" @click.stop="arrangement.open(task, $event, { kind: 'focus', enabled: task.focusDate !== todayIso })">{{ task.focusDate === todayIso ? '★' : '☆' }}</button>
-<div class="row-actions">
-<button class="icon-button" aria-label="任务操作" @click.stop="toggleTaskMenu(task.id)">···</button>
-<div v-if="openTaskMenuId === task.id" class="popup-menu task-popup" @click.stop>
-<button @click="setTaskPinned(task, !task.isPinned); closeMenus()">{{ task.isPinned ? '取消置顶' : '置顶任务' }}</button>
-<div class="menu-label">重要程度</div>
-<button v-for="priority in (['high','medium','low','none'] as TaskPriority[])" :key="priority" :class="{ selected: task.priority === priority }" @click="setTaskPriority(task, priority)">{{ priority === 'none' ? '未设置' : priorityLabel(priority) }}</button>
-</div>
-</div>
+<TaskMenu :task="task" />
             </div>
 </template>

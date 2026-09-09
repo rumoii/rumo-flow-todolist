@@ -2,8 +2,8 @@ import { computed, onBeforeUnmount, reactive, ref, watch, type Ref } from 'vue'
 import type { FlowDay, FlowHistoryEntry, FlowHistoryQuery } from '../../shared/contracts'
 import { localDay, shiftDay } from '../../shared/planning'
 
-export function useFlowHistory(visible: Ref<boolean>, today: Ref<string>) {
-  const filters = reactive({ from: shiftDay(today.value, -29), to: today.value, keyword: '', pendingOnly: false, reviewedOnly: false })
+export function useFlowHistory(visible: Ref<boolean>, today: Ref<string>, keyword: Ref<string>) {
+  const filters = reactive({ from: shiftDay(today.value, -29), to: today.value, get keyword() { return keyword.value }, set keyword(value: string) { keyword.value = value }, pendingOnly: false, reviewedOnly: false })
   const entries = ref<FlowHistoryEntry[]>([])
   const nextCursor = ref<string | null>(null)
   const loading = ref(false)

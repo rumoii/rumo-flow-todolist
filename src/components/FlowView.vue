@@ -9,7 +9,10 @@ import DraftStatus from './DraftStatus.vue'
 import FlowPreferences from '../features/flow/FlowPreferences.vue'
 import { useFlow } from '../features/flow/useFlow'
 const props = defineProps<{ todayCompletedCount: number; todayPendingCount: number }>()
+const historyKeyword = defineModel<string>('historyKeyword', { default: '' })
+const emit = defineEmits<{ historyVisible: [visible: boolean]; searchHistory: [] }>()
 const { drafts, todayIso, selectedDate, activeTab, day, summary, reviewDraft, reviewInputChoice, videoUrl, addingVideo, videoDrafts, loading, notice, confirmation, selectedSummary, isToday, pendingThoughts, overLimit, monthLabel, selectedDateLabel, inputOptions, calendarCells, resolveConfirmation, trapConfirmationFocus, discardReview, discardVideo, selectDay, changeMonth, daySummary, setActiveTab, moveTab, addVideo, openVideo, saveVideo, removeVideo, saveReview } = useFlow(props)
+watch(activeTab, tab => emit('historyVisible', tab === 'history'), { immediate: true })
 const flowRoot = ref<HTMLElement>()
 const calendarOpen = ref(false)
 const backfillOpen = ref(false)
@@ -94,7 +97,7 @@ const reviewDirty = computed(() => Object.entries(reviewDraft.value).some(([key,
           <button id="flow-tab-history" role="tab" :aria-selected="activeTab === 'history'" aria-controls="flow-panel-history" :tabindex="activeTab === 'history' ? 0 : -1" :class="{ active: activeTab === 'history' }" @click="setActiveTab('history')"><span>历史记录</span></button>
         </div>
 
-        <FlowHistory v-show="activeTab === 'history'" id="flow-panel-history" role="tabpanel" aria-labelledby="flow-tab-history" :visible="activeTab === 'history'" :today="todayIso" @edit="editHistory" @backfill="backfillOpen = true" @ready="restoreHistoryPosition" />
+        <FlowHistory v-model:keyword="historyKeyword" @search="emit('searchHistory')" v-show="activeTab === 'history'" id="flow-panel-history" role="tabpanel" aria-labelledby="flow-tab-history" :visible="activeTab === 'history'" :today="todayIso" @edit="editHistory" @backfill="backfillOpen = true" @ready="restoreHistoryPosition" />
         <Transition name="flow-tab" mode="out-in">
           <section v-if="activeTab === 'input'" id="flow-panel-input" key="input" class="flow-card" role="tabpanel" aria-labelledby="flow-tab-input">
             <header class="section-heading"><div><small>{{ isToday ? '观看之前' : '历史输入' }}</small><h2>{{ isToday ? '先看，再留下自己的判断' : selectedDateLabel }}</h2></div><span :class="['quota-pill', { warning: overLimit }]">{{ day.videos.length }}/{{ day.review.videoLimit }}</span></header>

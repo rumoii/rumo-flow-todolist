@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { flushPromises, mount } from '@vue/test-utils'
+import { config, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App.vue'
 import type { SavedFilter, Tag, Task, TaskList, TodoApi } from '../src/shared/contracts'
@@ -160,7 +160,10 @@ describe('App critical interactions', () => {
     expect(wrapper.get('.today-other').text()).toContain('普通置顶')
     expect(wrapper.get('.today-reminders').text()).toContain('项目到期')
     expect(wrapper.findAll('.today-reminders details').every(panel => panel.attributes('open') === undefined)).toBe(true)
-    await wrapper.get('input[placeholder="搜索任务"]').setValue('普通')
+    await wrapper.get('.workspace-search-trigger').trigger('click')
+    await wrapper.findAll('.search-scopes button')[1].trigger('click')
+    await wrapper.get('[aria-label="搜索关键词"]').setValue('普通')
+    await wrapper.get('.unified-search-form').trigger('submit')
     expect(wrapper.find('.today-reminders').exists()).toBe(false)
     expect(wrapper.get('.today-other').text()).toContain('普通置顶')
     wrapper.unmount()
@@ -191,10 +194,13 @@ describe('App critical interactions', () => {
     wrapper.unmount()
   })
   beforeEach(() => {
+    config.global.stubs = { ...config.global.stubs, Teleport: true }
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
     vi.restoreAllMocks()
   })
 
   afterEach(() => {
+    delete (config.global.stubs as Record<string, unknown>).Teleport
     vi.useRealTimers()
     delete window.todoApi
     delete document.documentElement.dataset.theme
@@ -339,7 +345,7 @@ describe('App critical interactions', () => {
     const wrapper = mount(App)
     await flushPromises()
     await wrapper.find('.task-row .task-main').trigger('click')
-    await wrapper.find('.tag-search-row input').setValue('新标签')
+    await wrapper.find('.editor-tag-query').setValue('新标签')
     await wrapper.find('.tag-create-button').trigger('click')
     await flushPromises()
     expect(api.tags.create).toHaveBeenCalledWith(expect.objectContaining({ name: '新标签' }))
@@ -381,7 +387,7 @@ describe('App critical interactions', () => {
     const wrapper = mount(App, { attachTo: document.body })
     await flushPromises()
 
-    const searchInput = wrapper.find('.search-box input')
+    const searchInput = wrapper.find('.quick-add input')
     await searchInput.trigger('keydown', { key: '?' })
     expect(wrapper.find('.shortcut-dialog').exists()).toBe(false)
 
@@ -414,14 +420,15 @@ describe('App critical interactions', () => {
     await flushPromises()
 
     await wrapper.find('.task-row .icon-button').trigger('click')
-    const pinButton = wrapper.findAll('.task-popup button').find((button) => button.text().includes('置顶任务'))
+    const pinButton = wrapper.findAll('.task-menu-panel button').find((button) => button.text().includes('置顶任务'))
     await pinButton!.trigger('click')
     await flushPromises()
     expect(api.tasks.organize).toHaveBeenCalledWith('task-1', expect.objectContaining({ isPinned: true, priority: 'none', orderedIds: ['task-1'] }))
     expect(wrapper.text()).toContain('置顶')
 
     await wrapper.find('.task-row .icon-button').trigger('click')
-    const priorityButton = wrapper.findAll('.task-popup button').find((button) => button.text().includes('高'))
+    await wrapper.findAll('.task-menu-panel button').find(button => button.text().includes('重要程度'))!.trigger('click')
+    const priorityButton = wrapper.findAll('.task-menu-panel button').find((button) => button.text().includes('高'))
     await priorityButton!.trigger('click')
     await flushPromises()
     expect(api.tasks.organize).toHaveBeenLastCalledWith('task-1', expect.objectContaining({ isPinned: true, priority: 'high', orderedIds: ['task-1'] }))
@@ -458,17 +465,19 @@ describe('App critical interactions', () => {
     await wrapper.find('.task-row .task-main').trigger('click')
 
     const subtasks = wrapper.find('.subtasks').element
-    const firstField = wrapper.find('.detail-card .field').element
+    const firstField = wrapper.find('.editor-properties').element
     expect(subtasks.compareDocumentPosition(firstField) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('groups task details into clear cards', async () => {
+  it('keeps notes and subtasks visible without card navigation', async () => {
     const api = createApi()
     window.todoApi = api
     const wrapper = mount(App)
     await flushPromises()
     await wrapper.find('.task-row .task-main').trigger('click')
-    expect(wrapper.findAll('.detail-card')).toHaveLength(5)
-    expect(wrapper.findAll('.detail-card h3').map(heading => heading.text())).toEqual(['子任务', '计划信息', '组织信息', '重复', '备注'])
+    expect(wrapper.findAll('.detail-card')).toHaveLength(0)
+    expect(wrapper.findAll('.editor-section h3').map(heading => heading.text())).toEqual(['备注', '子任务'])
+    await wrapper.get('[aria-label="展开任务详情"]').trigger('click')
+    expect(wrapper.get('.task-editor').classes()).toContain('task-editor-expanded')
   })
 })

@@ -20,7 +20,7 @@ test('arranges through real windows without overwriting drafts or resetting dead
     await row.getByRole('button', { name: '设为今日重点 安排验收任务', exact: true }).click()
     await expect(page.locator('.today-focus [data-task-id]')).toHaveCount(1)
     await row.getByRole('button', { name: '打开任务 安排验收任务', exact: true }).click()
-    await expect(page.getByLabel('当日重点')).toBeChecked()
+    await expect(page.getByRole('button', { name: '★ 已设为当日重点' })).toHaveAttribute('aria-pressed', 'true')
     await page.getByPlaceholder('记录一些想法…').fill('缓存同步后的正式修改')
     await page.getByRole('button', { name: '保存更改', exact: true }).click()
     await page.getByRole('button', { name: '关闭', exact: true }).click()
