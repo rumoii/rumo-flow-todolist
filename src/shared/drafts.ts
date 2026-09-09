@@ -16,6 +16,9 @@ export interface TaskEditorDraft {
   recurrenceWeekdays?: number[]
 }
 export interface DraftPayloads {
+  quickTask: { title: string; contextDate: string; listId: string | null; plan: import('./planning').TaskPlan | null }
+  subtask: { title: string }
+  videoLink: { sourceUrl: string }
   task: TaskEditorDraft
   review: SaveDailyReviewInput
   video: Required<UpdateVideoReflectionInput>

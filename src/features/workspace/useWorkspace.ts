@@ -6,12 +6,11 @@ import { isoDate } from '../../shared/date'
 import { inPlan, isOverdue, localDay, planEnd, planFor } from '../../shared/planning'
 import { preferencesKey } from './preferences-context'
 import { navigationKey, type WorkspaceNavigation } from './navigation'
-import { parseQuickAdd } from '../../shared/quick-add'
-import { ensureTags } from '../../shared/tag-utils'
 import { matchesTaskFilter } from '../../shared/task-filter'
-import type { CreateTaskInput, SavedFilter, Tag, Task, TaskList, TaskPriority } from '../../shared/contracts'
+import type { SavedFilter, Tag, Task, TaskList, TaskPriority } from '../../shared/contracts'
 import { useWorkspaceSearch } from './useWorkspaceSearch'
-import { useDetails } from './useDetails'
+import { useDetails, detailsKey } from './useDetails'
+import { useQuickTask } from './useQuickTask'
 import { useOrdering } from './useOrdering'
 import { useTaskArrangement } from './useTaskArrangement'
 import { usePreferences } from './usePreferences'
@@ -33,35 +32,41 @@ export function useWorkspace() {
   let navigationSequence = 0
   async function openTask(id: string) {
     const request = ++navigationSequence
+    if (!await drafts.leave.request()) return false
     await drafts.flush()
     await loadData()
-    if (request !== navigationSequence) return
+    if (request !== navigationSequence) return false
     const task = tasks.value.find(item => item.id === id)
-    if (!task) { notify('任务已删除'); return }
+    if (!task) { notify('任务已删除'); return false }
+    detailOpen.value = false
     currentView.value = 'all'
-    await selectTask(task)
+    await selectTask(task, true)
+    return detailOpen.value && selectedTaskId.value === id
   }
   async function openFlow(date: string, videoId?: string) {
     const request = ++navigationSequence
+    if (!await drafts.leave.request()) return false
     await drafts.flush()
-    if (request !== navigationSequence) return
+    if (request !== navigationSequence) return false
     detailOpen.value = false
     currentView.value = 'flow'
     flowTarget.value = { date, videoId, sequence: (flowTarget.value?.sequence ?? 0) + 1 }
+    return true
   }
   const activeView = computed({
     get: () => currentView.value,
     set: (view: View) => {
-      if (!drafts.supported) {
-        currentView.value = view
-        return
-      }
+      if (view === currentView.value) return
       const request = ++navigationSequence
-      void drafts.flush().then(() => { if (request === navigationSequence)
-        currentView.value = view; }, () => notify('草稿保留失败，请重试后切换页面'))
+      void drafts.leave.request().then(async allowed => {
+        if (!allowed || request !== navigationSequence) return
+        await drafts.flush()
+        detailOpen.value = false
+        currentView.value = view
+      }).catch(() => notify('草稿保留失败，请重试后切换页面'))
     },
   })
-  const quickTitle = ref('')
+
   const quickInput = ref<HTMLInputElement | null>(null)
   const search = ref('')
   const totalStatus = ref<'active' | 'completed' | 'all'>('active')
@@ -97,7 +102,11 @@ export function useWorkspace() {
   const fallbackLists: TaskList[] = [{ id: 'inbox', name: '收集箱', color: '#856AF9', sortOrder: 0, isPinned: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
   const fallbackTasks: Task[] = []
   const priorityRank: Record<TaskPriority, number> = { high: 0, medium: 1, low: 2, none: 3 }
-  const { detailLoading, selectedTaskId, detailOpen, detailDraft, tagQuery, newSubtaskTitle, recurrenceDrafts, activeTask, subtasks, visibleDetailTags, canCreateDetailTag, selectTask, closeDetail, discardTaskDraft, createTagFromDetail, saveDetail, addSubtask, createTaskAsSubtask } = useDetails({ tasks, tags, drafts, notify, closeMenus, hasApi, managedTagDrafts })
+  const details = useDetails({ tasks, tags, drafts, notify, closeMenus })
+  provide(detailsKey, details)
+  const { selectedTaskId, detailOpen, detailDraft, activeTask, selectTask, closeDetail } = details
+  const quick = useQuickTask(drafts, () => ({ title: '', contextDate: todayIso.value, listId: activeListId.value, plan: activeView.value === 'today' ? planFor('day', todayIso.value) : activeView.value === 'week' || activeView.value === 'month' ? planFor(activeView.value, todayIso.value) : null }), () => !['flow', 'tags', 'trash'].includes(currentView.value) && !detailOpen.value, tasks, notify, loadData)
+  const { quickTitle, quickBusy, quickReady, quickContextHint, createTask } = quick
   const arrangement = useTaskArrangement(tasks, drafts.epoch, selectTask, notify)
   const quickPlanHint = computed(() => activeView.value === 'today' ? '新增任务安排到今天，不自动设为重点' : activeView.value === 'week' ? '新增任务进入本周待细化，可再安排到某一天' : activeView.value === 'month' ? '新增任务进入月内待细化，可再安排到周或日' : '新增任务默认未安排，可点击任务上的计划按钮安排时间')
   function notify(message: string, action: {
@@ -232,27 +241,11 @@ export function useWorkspace() {
   function priorityLabel(priority: TaskPriority) { return ({ none: '未设置', low: '低', medium: '中', high: '高' }[priority]); }
   function priorityCode(priority: TaskPriority) { return ({ none: '', low: '低', medium: '中', high: '高' }[priority]); }
   function priorityClass(priority: TaskPriority) { return priority === 'high' ? 'priority-high' : priority === 'medium' ? 'priority-medium' : priority === 'low' ? 'priority-low' : ''; }
-  async function createTask(title = quickTitle.value) {
-    const parsed = parseQuickAdd(title, lists.value, tags.value, currentDate.value)
-    const clean = parsed.input.title.trim()
-    if (!clean)
-      return
-    try {
-      const resolved = hasApi() ? await ensureTags(window.todoApi, tags.value, parsed.tagNames) : { tags: [], failed: [] }
-      const input: CreateTaskInput = { ...parsed.input, title: clean, tagIds: resolved.tags.map(tag => tag.id), listId: parsed.recognized.some(token => token.startsWith('~')) ? parsed.input.listId : activeListId.value, plan: activeView.value === 'today' ? planFor('day', todayIso.value) : activeView.value === 'week' || activeView.value === 'month' ? planFor(activeView.value, todayIso.value) : null, focusDate: null, notes: '', isPinned: false }
-      const task = hasApi() ? await window.todoApi.tasks.create(input) : ({ ...input, id: crypto.randomUUID(), status: 'active', sortOrder: tasks.value.length, isPinned: false, parentTaskId: null, recurrenceRuleId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: null } as Task)
-      tasks.value = [...tasks.value.filter(item => item.id !== task.id), { ...task, isPinned: task.isPinned ?? false }]
-      quickTitle.value = ''
-      notify(resolved.failed.length ? `任务已添加，标签创建失败：${resolved.failed.join('、')}` : parsed.recognized.length ? `已识别 ${parsed.recognized.join(' ')}` : '任务已添加')
-    }
-    catch {
-      notify('添加失败')
-    }
-  }
   function filterByTag(tag: Tag) { temporaryTagId.value = tag.id; search.value = ''; closeMenus(); }
   async function toggleTask(task: Task) {
     const wasCompleted = task.status === 'completed'
     try {
+      if (detailOpen.value && selectedTaskId.value === task.id) await details.saveDetail()
       if (hasApi())
         wasCompleted ? await window.todoApi.tasks.reopen(task.id) : await window.todoApi.tasks.complete(task.id)
       await loadData()
@@ -265,6 +258,7 @@ export function useWorkspace() {
   }
   async function removeTask(task: Task) {
     try {
+      if (detailOpen.value && selectedTaskId.value === task.id && !await drafts.leave.request(['detail'])) return
       if (hasApi())
         await window.todoApi.tasks.remove(task.id)
       drafts.forget('task', task.id)
@@ -430,19 +424,19 @@ export function useWorkspace() {
         (dialogFocusable(dialog)[0] ?? dialog).focus()
     }
     else if (wasOpen) {
-      lastFocusedElement?.focus()
+      if (lastFocusedElement?.isConnected) lastFocusedElement.focus()
+      else document.querySelector<HTMLElement>('.page-header h1')?.focus()
       lastFocusedElement = null
     }
   })
   onMounted(() => { removeDataListener = window.todoApi?.desktop?.onDataChanged?.(() => { void loadData(); }); applySettings(); loadData(); window.addEventListener('keydown', handleShortcut); if (hasApi() && window.todoApi.desktop) {
     removeDesktopListener = window.todoApi.desktop.onFocusQuickAdd((taskId) => { loadData().then(() => { if (taskId) {
-      selectedTaskId.value = taskId
       const task = tasks.value.find(item => item.id === taskId)
       if (task)
         selectTask(task)
     } }); })
-    removeFlowListener = window.todoApi.desktop.onOpenFlow(() => { activeView.value = 'flow'; detailOpen.value = false; settingsOpen.value = false; })
+    removeFlowListener = window.todoApi.desktop.onOpenFlow(() => { activeView.value = 'flow'; settingsOpen.value = false; })
   } })
   onBeforeUnmount(() => { window.removeEventListener('keydown', handleShortcut); removeDesktopListener?.(); removeFlowListener?.(); removeDataListener?.(); window.clearTimeout(toastTimer); })
-  return { workspaceSearch, arrangement, quickPlanHint, loadData, totalStatus, totalDeadline, unplannedOnly, dueToday, pastPlanned, drafts, closeMenus, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon, settings, settingsSaving, desktopStatus, exportBackup, importBackup, saveSettings, shortcutsOpen, newTagName, managedTagDrafts, pendingTagDelete, tagsSaving, createManagedTag, updateManagedTag, deleteManagedTag, trapDialogFocus, detailLoading, search, pendingDelete, selectedTaskId, detailOpen, detailDraft, tagQuery, newSubtaskTitle, activeTask, subtasks, visibleDetailTags, canCreateDetailTag, closeDetail, discardTaskDraft, createTagFromDetail, saveDetail, addSubtask, toggleTask, quickTitle, quickInput, groupBy, temporaryTagId, loading, todayIso, selectTask, viewTitle, viewHint, taskReorderEnabled, draggedTaskId, endTaskDrag, dropTaskInZone, onWeekDrop, filteredTasks, pinnedTasks, groupedRegularTasks, completedTodayCount, temporaryTag, emptyState, priorityCode, priorityClass, createTask, weekDates, tasksForDate, lists, openTaskMenuId, taskDropTargetId, setTaskPinned, setTaskPriority, startTaskDrag, dropTaskBefore, dateLabel, priorityLabel, filterByTag, toggleTaskMenu, pendingListDelete, listDeletePolicy, toast, toastAction, removeTask, confirmListDelete, runToastAction }
+  return { quickBusy, quickReady, quickContextHint, workspaceSearch, arrangement, quickPlanHint, loadData, totalStatus, totalDeadline, unplannedOnly, dueToday, pastPlanned, drafts, closeMenus, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon, settings, settingsSaving, desktopStatus, exportBackup, importBackup, saveSettings, shortcutsOpen, newTagName, managedTagDrafts, pendingTagDelete, tagsSaving, createManagedTag, updateManagedTag, deleteManagedTag, trapDialogFocus, search, pendingDelete, selectedTaskId, detailOpen, detailDraft, activeTask, closeDetail, toggleTask, quickTitle, quickInput, groupBy, temporaryTagId, loading, todayIso, selectTask, viewTitle, viewHint, taskReorderEnabled, draggedTaskId, endTaskDrag, dropTaskInZone, onWeekDrop, filteredTasks, pinnedTasks, groupedRegularTasks, completedTodayCount, temporaryTag, emptyState, priorityCode, priorityClass, createTask, weekDates, tasksForDate, lists, openTaskMenuId, taskDropTargetId, setTaskPinned, setTaskPriority, startTaskDrag, dropTaskBefore, dateLabel, priorityLabel, filterByTag, toggleTaskMenu, pendingListDelete, listDeletePolicy, toast, toastAction, removeTask, confirmListDelete, runToastAction }
 }

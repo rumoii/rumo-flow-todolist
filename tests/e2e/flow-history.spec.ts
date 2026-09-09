@@ -1,3 +1,6 @@
+import { installBrowserDrafts } from './editor-fixture'
+import { draftToTask } from '../../src/shared/drafts'
+import { parseQuickAdd } from '../../src/shared/quick-add'
 import { filterCurrentList } from './search-helpers'
 import { expect, test } from '@playwright/test'
 import { installArrangementFixture } from './arrangement-fixture'
@@ -5,6 +8,7 @@ import { installFlowHistoryFixture } from './flow-history-fixture'
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(installArrangementFixture)
   await page.addInitScript(installFlowHistoryFixture)
+  await page.addInitScript(installBrowserDrafts, { task: draftToTask.toString(), quick: parseQuickAdd.toString() })
   await page.goto('/')
 })
 test('journal reads multiple dates, paginates, filters and returns from editing in place', async ({ page }, info) => {

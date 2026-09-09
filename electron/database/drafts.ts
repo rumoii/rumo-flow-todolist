@@ -17,20 +17,22 @@ interface DraftRow {
   payload: string | null
   updated_at: string
 }
-const kinds = ['task', 'review', 'video', 'capture']
+const kinds = ['task', 'review', 'video', 'capture', 'quickTask', 'subtask', 'videoLink']
 export function validateDraftPayload(kind: DraftKind, key: string, value: unknown): void {
   if (!kinds.includes(kind) || typeof key !== 'string' || !key || key.length > 200)
     throw new Error('草稿编号无效')
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error('草稿内容无效')
   const payload = value as Record<string, unknown>
-  const stringFields = kind === 'task' ? ['title', 'dueDate', 'dueTime', 'priority', 'notes', 'recurrence', 'recurrenceEnd'] : kind === 'review' ? ['date'] : kind === 'video' ? ['title', 'sourceUrl', 'author', 'thought'] : ['title']
+  const stringFields = kind === 'task' ? ['title', 'dueDate', 'dueTime', 'priority', 'notes', 'recurrence', 'recurrenceEnd'] : kind === 'review' ? ['date'] : kind === 'video' ? ['title', 'sourceUrl', 'author', 'thought'] : kind === 'videoLink' ? ['sourceUrl'] : ['title']
   if (stringFields.some(field => typeof payload[field] !== 'string'))
     throw new Error('草稿字段无效')
   if (JSON.stringify(payload).length > 1000000)
     throw new Error('草稿内容过长')
-  if (kind === 'capture' && key !== 'global')
+  if ((kind === 'capture' || kind === 'quickTask') && key !== 'global')
     throw new Error('捕获草稿编号无效')
+  if (kind === 'videoLink' && !validCalendarDate(key)) throw new Error('视频草稿日期无效')
+  if (kind === 'quickTask' && (typeof payload.contextDate !== 'string' || !validCalendarDate(payload.contextDate) || !validPlan(payload.plan) || (payload.listId !== null && typeof payload.listId !== 'string'))) throw new Error('新建任务草稿上下文无效')
   if (kind === 'review') {
     if (!validCalendarDate(key) || payload.date !== key)
       throw new Error('复盘草稿日期无效')
@@ -69,7 +71,12 @@ export class DraftRepository {
   private base(kind: DraftKind, key: string): string | null {
     if (!kinds.includes(kind) || typeof key !== 'string' || !key)
       throw new Error('草稿编号无效')
-    if (kind === 'capture') {
+    if (kind === 'subtask') return null
+    if (kind === 'videoLink') {
+      if (!validCalendarDate(key)) throw new Error('视频草稿日期无效')
+      return null
+    }
+    if (kind === 'capture' || kind === 'quickTask') {
       if (key !== 'global')
         throw new Error('捕获草稿编号无效')
       return null
@@ -151,12 +158,14 @@ export class DraftRepository {
   }
   commit(input: DraftRef & {
     acceptChanges?: boolean
+    expectedBaseUpdatedAt?: string | null
   }): unknown {
     return getDatabase().transaction(() => {
       const snapshot = this.check(input)
       const record = snapshot.record
       if (!record)
         throw new Error('没有可提交的草稿')
+      if (input.acceptChanges === true && input.expectedBaseUpdatedAt !== this.base(input.kind, input.key)) throw new Error('正式记录已变化，请重新检查后确认')
       if (this.base(input.kind, input.key) !== record.baseUpdatedAt && input.acceptChanges !== true)
         throw new Error('正式记录已变化，请确认后重新保存')
       let result: unknown
@@ -166,9 +175,22 @@ export class DraftRepository {
         result = this.flow.saveFlowReview(record.payload)
       else if (record.kind === 'video')
         result = this.flow.updateFlowVideo(record.key, record.payload)
+      else if (record.kind === 'videoLink')
+        result = this.flow.createFlowVideo({ date: record.key, sourceUrl: record.payload.sourceUrl })
+      else if (record.kind === 'subtask') {
+        const parent = this.tasks.getTask(record.key)
+        if (parent.deletedAt || parent.status !== 'active') throw new Error('父任务已删除或完成，请先恢复父任务')
+        result = this.tasks.createTask({ title: record.payload.title, parentTaskId: parent.id, listId: parent.listId, dueDate: parent.dueDate, priority: 'none' })
+      }
       else {
         const tags = this.organization.listTags()
-        const parsed = parseQuickAdd(record.payload.title, this.organization.listLists(), tags)
+        const parsed = parseQuickAdd(record.payload.title, this.organization.listLists(), tags, record.kind === 'quickTask' ? new Date(`${record.payload.contextDate}T12:00:00`) : new Date())
+        if (record.kind === 'quickTask') {
+          parsed.input.listId = parsed.recognized.some(token => token.startsWith('~')) ? parsed.input.listId : record.payload.listId
+          if (parsed.input.listId && !getDatabase().prepare('SELECT 1 FROM task_lists WHERE id=?').get(parsed.input.listId)) throw new Error('原清单已删除，请指定有效清单或清空后重新填写')
+          parsed.input.plan = record.payload.plan
+          parsed.input.focusDate = null
+        }
         const tagIds = [...new Set(parsed.tagNames)].map(name => {
           const existing = tags.find(tag => tag.name.toLocaleLowerCase() === name.toLocaleLowerCase())
           if (existing)

@@ -2,11 +2,12 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import QuickCapture from '../src/QuickCapture.vue'
+import { installDraftApi } from './draft-api-fixture'
 import type { TodoApi } from '../src/shared/contracts'
 import { createDraftCoordinator, draftCoordinatorKey } from '../src/composables/draft-coordinator'
 
 function createApi(overrides: Partial<TodoApi> = {}): TodoApi {
-  return {
+  return installDraftApi({
     tasks: { list: vi.fn(async () => []), create: vi.fn(async () => undefined), update: vi.fn(), complete: vi.fn(), reopen: vi.fn(), remove: vi.fn(), recover: vi.fn(), reorder: vi.fn() },
     lists: { list: vi.fn(async () => []), create: vi.fn(), update: vi.fn(), remove: vi.fn(), reorder: vi.fn() },
     tags: { list: vi.fn(async () => []), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
@@ -15,10 +16,28 @@ function createApi(overrides: Partial<TodoApi> = {}): TodoApi {
     desktop: { status: vi.fn(), openQuickCapture: vi.fn(), onFocusQuickAdd: vi.fn() },
     backup: { export: vi.fn(), import: vi.fn() },
     ...overrides,
-  } as unknown as TodoApi
+  } as unknown as TodoApi)
 }
 
 describe('QuickCapture', () => {
+  it('keeps an invalid capture open when choosing save before leaving', async () => {
+    const api = createApi()
+    window.todoApi = api
+    const coordinator = createDraftCoordinator(api)
+    const wrapper = mount(QuickCapture, { global: { provide: { [draftCoordinatorKey as symbol]: coordinator } } })
+    await flushPromises()
+    await wrapper.get('input').setValue('#标签')
+    const request = coordinator.leave.request()
+    await flushPromises()
+    await coordinator.leave.choose('save')
+    expect(coordinator.leave.error.value).toContain('请填写任务标题')
+    expect(coordinator.leave.opened.value).toBe(true)
+    expect(api.tasks.create).not.toHaveBeenCalled()
+    await coordinator.leave.choose('cancel')
+    expect(await request).toBe(false)
+    wrapper.unmount()
+    coordinator.dispose()
+  })
   it('offers a visible close action and retains input when draft preservation fails', async () => {
     const api = createApi()
     window.todoApi = api

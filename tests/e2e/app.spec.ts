@@ -1,3 +1,6 @@
+import { installBrowserDrafts } from './editor-fixture'
+import { draftToTask } from '../../src/shared/drafts'
+import { parseQuickAdd } from '../../src/shared/quick-add'
 import { expect, test } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
@@ -110,6 +113,7 @@ test.beforeEach(async ({ page }) => {
       },
     })
   })
+  await page.addInitScript(installBrowserDrafts, { task: draftToTask.toString(), quick: parseQuickAdd.toString() })
 })
 
 test('creates, completes and edits a task without console or page errors', async ({ page }) => {
@@ -129,12 +133,15 @@ test('creates, completes and edits a task without console or page errors', async
   const newTaskRow = page.locator('.task-row').filter({ hasText: '浏览器新增任务' })
   await newTaskRow.locator('.task-main').click()
   await expect(page.getByText('任务详情')).toBeVisible()
-  await expect(page.locator('.editor-section h3')).toHaveText(['备注', '子任务'])
+  await expect(page.locator('.editor-section h3')).toHaveText(['子任务', '备注'])
+  await page.getByRole('button', { name: '＋ 添加截止时间' }).click()
   await page.getByLabel('截止日期', { exact: true }).fill(new Date().toLocaleDateString('sv-SE'))
+  await page.getByLabel('截止时间', { exact: true }).fill('18:00')
   await page.getByRole('combobox', { name: '任务提醒' }).click()
   await page.getByRole('option', { name: '提前 1 小时' }).click()
   await page.locator('.title-input').fill('浏览器编辑任务')
-  await page.getByRole('button', { name: '保存更改' }).click()
+  await page.locator('.title-input').blur()
+  await expect(page.locator('.editor-save-state')).toContainText('已保存')
   await expect(page.getByText('浏览器编辑任务')).toBeVisible()
 
   await page.getByRole('button', { name: '关闭' }).click()
@@ -303,10 +310,10 @@ test('pins tasks, changes priority and exposes subtasks near the top of details'
   await expect(page.locator('.pinned-zone').getByText('低')).toBeVisible()
 
   await page.locator('.pinned-zone').locator('.task-main').filter({ hasText: '验收初始任务' }).click()
-  const subtaskComposer = page.getByPlaceholder('添加子任务…')
+  const subtaskComposer = page.getByPlaceholder('把任务拆成可以完成的小步骤…')
   await expect(subtaskComposer).toBeVisible()
   const composerBox = await subtaskComposer.boundingBox()
-  const listFieldBox = await page.getByText('执行计划', { exact: true }).boundingBox()
+  const listFieldBox = await page.locator('.editor-notes h3').boundingBox()
   expect(composerBox!.y).toBeLessThan(listFieldBox!.y)
 })
 
@@ -473,9 +480,11 @@ test('creates tags from Quick Add and details, then filters without opening deta
   await expect(page.getByText('任务详情')).toHaveCount(0)
 
   await taggedRow.locator('.task-main').click()
+  await page.getByRole('button', { name: '＋ 添加标签' }).click()
   await page.getByPlaceholder('搜索或输入新标签').fill('重点')
   await page.getByRole('button', { name: /创建并添加“重点”/ }).click()
-  await page.getByRole('button', { name: '保存更改' }).click()
+  await page.locator('.title-input').blur()
+  await expect(page.locator('.editor-save-state')).toContainText('已保存')
   await page.getByRole('button', { name: '关闭' }).click()
   await expect(taggedRow.getByRole('button', { name: '#重点' })).toBeVisible()
 })
@@ -544,6 +553,7 @@ test('preserves unfinished review text when leaving the flow page', async ({ pag
   await page.getByRole('tab', { name: '每日复盘 待完成', exact: true }).click()
   await page.getByPlaceholder('哪件事值得肯定？').fill('切页不能丢失的复盘')
   await page.getByRole('button', { name: '今天 1', exact: true }).click()
+  await page.getByRole('button', { name: '保留草稿并继续' }).click()
   await page.getByRole('button', { name: '心流 记录与复盘', exact: true }).click()
   await expect(page.getByPlaceholder('哪件事值得肯定？')).toHaveValue('切页不能丢失的复盘')
 })

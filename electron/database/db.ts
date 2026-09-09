@@ -3,6 +3,7 @@ import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { migratePlanning, snapshotBeforePlanning } from './planning-migration'
+import { migrateComposers } from './composer-migration'
 
 let db: Database.Database | undefined
 let testDatabasePath: string | undefined
@@ -213,6 +214,7 @@ function migrate(database: Database.Database): void {
   }
 
   migratePlanning(database, applied?.version ?? 0)
+  migrateComposers(database, applied?.version ?? 0)
 }
 
 export function closeDatabase(): void {

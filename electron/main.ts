@@ -83,16 +83,16 @@ if (primaryInstance)
     const rendererFile = path.join(currentDirectory, '../renderer/index.html')
     desktop = new DesktopController(() => mainWindow, createWindow, windowIconPath, process.env.ELECTRON_RENDERER_URL, rendererFile)
     desktop.setWindowGuard(() => !barrier.running && !quitPending)
-    desktop.setCloseGuard(async () => {
+    desktop.setCloseGuard(async (window, reason) => {
       if (barrier.running)
         return false
       try {
-        await barrier.run('close', () => undefined)
+        await barrier.run(reason, () => undefined, { windowIds: [window.webContents.id] })
         return true
       }
-      catch {
-        const result = await dialog.showMessageBox({ type: 'warning', message: '草稿尚未成功保留', detail: '取消后可以重试保留。仍然关闭可能丢失最后输入。', buttons: ['取消', '仍然关闭'], defaultId: 0, cancelId: 0 })
-        return result.response === 1
+      catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('已取消离开')) await dialog.showMessageBox({ type: 'warning', message: '未能关闭窗口', detail: '输入尚未确认保留，请回到编辑器重试。', buttons: ['返回编辑器'] })
+        return false
       }
     })
     desktop.start(repository.settings.getSettings().globalShortcut)
@@ -146,9 +146,9 @@ app.on('before-quit', (event) => {
   if (quitPending || barrier.running)
     return
   quitPending = true
-  void barrier.run('close', () => undefined).then(() => true, async () => {
-    const result = await dialog.showMessageBox({ type: 'warning', message: '草稿尚未成功保留', detail: '取消退出后可以重试。仍然退出会放弃尚未落盘的输入。', buttons: ['取消退出', '仍然退出'], defaultId: 0, cancelId: 0 })
-    return result.response === 1
+  void barrier.run('close', () => undefined).then(() => true, async (error) => {
+    if (!(error instanceof Error) || !error.message.includes('已取消离开')) await dialog.showMessageBox({ type: 'warning', message: '未能退出', detail: '输入尚未确认保留，请回到编辑器重试。', buttons: ['返回编辑器'] })
+    return false
   }).then(quit => {
     quitPending = false
     if (!quit)

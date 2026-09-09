@@ -28,8 +28,10 @@ test('uses real version/settings IPC and atomically arranges selected tasks with
     expect(clipboard).not.toContain('批量第一项')
     await page.getByRole('button', { name: '关闭设置' }).click()
     await page.getByRole('button', { name: '打开任务 批量第二项', exact: true }).click()
-    await page.getByPlaceholder('记录一些想法…').fill('未提交的详情修改')
+    await page.locator('.title-input').fill('')
+    await page.getByPlaceholder('补充背景、思路或参考信息…').fill('未提交的详情修改')
     await page.getByRole('button', { name: '关闭', exact: true }).click()
+    await page.getByRole('button', { name: '保留草稿并继续' }).click()
     const input = { targets: [result.first, result.second].map(({ id, updatedAt }) => ({ id, updatedAt })), action: { kind: 'plan' as const, plan: { kind: 'day' as const, start: '2030-02-01' } } }
     const rejection = await page.evaluate(async input => {
       const snapshot = await window.todoApi.drafts.get('capture', 'global')
@@ -56,6 +58,7 @@ test('uses real version/settings IPC and atomically arranges selected tasks with
     expect(changed.filter(task => [result.first.id, result.second.id].includes(task.id)).every(task => task.plan?.start === '2030-02-01')).toBe(true)
     expect(changed.find(task => task.id === result.first.id)).toMatchObject({ dueDate: '2030-01-01', dueTime: '12:00', reminderMinutesBefore: 15 })
   } finally {
+    await application.evaluate(({ app }) => app.exit(0)).catch(() => undefined)
     await application.close()
     fs.rmSync(directory, { recursive: true, force: true })
   }

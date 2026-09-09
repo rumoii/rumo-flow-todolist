@@ -32,6 +32,44 @@ const task = { id: 'task', title: '任务', tags: [], notes: '', plan: null, foc
 const arranged = { ...task, plan: { kind: 'day', start: '2026-09-08' } } as Task
 const sync = { task: arranged, snapshot: { generation: 'first', revision: 0, baseUpdatedAt: 'after', record: null } }
 
+it('keeps newer input while a nonblocking task commit is in flight', async () => {
+  const { api } = fixture()
+  const coordinator = createDraftCoordinator(api)
+  let finish!: (value: Task) => void
+  const original = api.drafts.commit
+  vi.mocked(api.drafts.commit).mockImplementationOnce(async input => {
+    await new Promise<Task>(resolve => { finish = resolve })
+    await original(input)
+    return { ...task, title: 'first' }
+  })
+  await coordinator.open('task', task.id, taskToDraft(task))
+  coordinator.update('task', task.id, { ...taskToDraft(task), title: 'first' })
+  const pending = coordinator.commitTask(task.id)
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+  expect(coordinator.saving.value).toBe(false)
+  coordinator.update('task', task.id, { ...taskToDraft(task), title: 'newer' })
+  finish(task)
+  await pending
+  await coordinator.flush()
+  expect((await coordinator.open('task', task.id, taskToDraft(task))).title).toBe('newer')
+  expect(coordinator.hasPending('task', task.id)).toBe(true)
+  coordinator.dispose()
+})
+
+it('keeps failed task input without a global lock or automatic conflict overwrite', async () => {
+  const { api } = fixture()
+  const coordinator = createDraftCoordinator(api)
+  await coordinator.open('task', task.id, taskToDraft(task))
+  coordinator.update('task', task.id, { ...taskToDraft(task), notes: '保留内容' })
+  vi.mocked(api.drafts.commit).mockRejectedValueOnce(new Error('正式记录已变化'))
+  await expect(coordinator.commitTask(task.id)).rejects.toThrow('已变化')
+  expect(coordinator.saving.value).toBe(false)
+  expect(api.drafts.commit).toHaveBeenCalledOnce()
+  expect(coordinator.hasPending('task', task.id)).toBe(true)
+  expect((await coordinator.open('task', task.id, taskToDraft(task))).notes).toBe('保留内容')
+  coordinator.dispose()
+})
+
 it('synchronizes clean editor payload and base version before unpausing without creating a draft', async () => {
   const state = fixture()
   const coordinator = createDraftCoordinator(state.api)

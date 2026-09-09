@@ -1,6 +1,7 @@
 import { reactive, ref } from 'vue'
 import type { InjectionKey } from 'vue'
-import type { TaskSynchronization, TodoApi } from '../shared/contracts'
+import type { Task, TaskSynchronization, TodoApi } from '../shared/contracts'
+import { createEditorLeave } from './editor-leave'
 import { taskToDraft } from '../shared/drafts'
 import type { DraftKind, DraftPayloads, DraftSnapshot } from '../shared/drafts'
 interface Entry {
@@ -10,6 +11,7 @@ interface Entry {
   payload: DraftPayloads[DraftKind]
   dirty: boolean
   sequence: number
+  persistedSequence?: number
   status: string
   error: string
   queue: Promise<unknown>
@@ -17,6 +19,7 @@ interface Entry {
 }
 const clone = <Value>(value: Value): Value => JSON.parse(JSON.stringify(value))
 export function createDraftCoordinator(api: TodoApi | undefined) {
+  const leave = createEditorLeave()
   const entries = reactive(new Map<string, Entry>())
   const paused = ref(false)
   const saving = ref(false)
@@ -46,14 +49,15 @@ export function createDraftCoordinator(api: TodoApi | undefined) {
   }
   function update<Kind extends DraftKind>(kind: Kind, key: string, payload: DraftPayloads[Kind]) {
     const entry = entries.get(identity(kind, key))
-    if (!entry || paused.value || saving.value || JSON.stringify(entry.payload) === JSON.stringify(payload))
-      return
+    if (!entry || paused.value || JSON.stringify(entry.payload) === JSON.stringify(payload))
+      return false
     entry.payload = clone(payload)
     entry.sequence++
     entry.dirty = true
     entry.status = '正在保留草稿…'
     clearTimeout(entry.timer)
     entry.timer = setTimeout(() => { void flushEntry(entry).catch(() => undefined); }, 500)
+    return true
   }
   function enqueue<Result>(entry: Entry, action: () => Promise<Result>): Promise<Result> {
     const pending = entry.queue.catch(() => undefined).then(action)
@@ -71,6 +75,7 @@ export function createDraftCoordinator(api: TodoApi | undefined) {
           revision: entry.snapshot.revision, baseUpdatedAt: entry.snapshot.record ? entry.snapshot.record.baseUpdatedAt : entry.snapshot.baseUpdatedAt,
           payload: clone(entry.payload) })
         entry.snapshot = snapshot
+        entry.persistedSequence = sequence
         entry.dirty = sequence !== entry.sequence
         entry.status = entry.dirty ? '正在保留草稿…' : '草稿已保留'
         entry.error = ''
@@ -89,6 +94,37 @@ export function createDraftCoordinator(api: TodoApi | undefined) {
         await flushEntry(entry)
     }
   }
+  async function retain(kind: DraftKind, key: string) {
+    const entry = entries.get(identity(kind, key))
+    if (entry) await flushEntry(entry)
+  }
+  async function commitTask(key: string, acceptChanges = false, expectedBaseUpdatedAt?: string | null): Promise<Task> {
+    if (paused.value) throw new Error('正在恢复数据，请稍后重试')
+    const entry = entries.get(identity('task', key))
+    if (!entry) throw new Error('编辑器尚未准备好')
+    await flushEntry(entry)
+    return enqueue(entry, async () => {
+      if (!entry.snapshot.record) throw new Error('没有可提交的草稿')
+      const sequence = entry.persistedSequence ?? 0
+      try {
+        const result = await api!.drafts.commit({ kind: 'task', key, generation: entry.snapshot.generation, revision: entry.snapshot.revision, acceptChanges, expectedBaseUpdatedAt }) as Task
+        const snapshot = await api!.drafts.get('task', key)
+        if (snapshot.generation !== entry.snapshot.generation) throw new Error('数据已恢复，请重新打开编辑器')
+        entry.snapshot = snapshot
+        entry.dirty = sequence !== entry.sequence
+        entry.status = entry.dirty ? '正在保留草稿…' : ''
+        entry.error = ''
+        return result
+      } catch (error) {
+        entry.error = error instanceof Error ? error.message : '保存失败'
+        throw error
+      }
+    })
+  }
+  const hasPending = (kind: DraftKind, key: string) => {
+    const entry = entries.get(identity(kind, key))
+    return Boolean(entry && (entry.dirty || entry.snapshot.record))
+  }
   async function commit(kind: DraftKind, key: string, acceptChanges = false): Promise<unknown> {
     if (paused.value || saving.value)
       throw new Error('正在保留或恢复数据，请稍后重试')
@@ -101,12 +137,14 @@ export function createDraftCoordinator(api: TodoApi | undefined) {
         entry.dirty = true
       await flushEntry(entry)
       return await enqueue(entry, async () => {
-        const submit = (acceptChanges: boolean) => api!.drafts.commit({ kind, key, generation: entry.snapshot.generation, revision: entry.snapshot.revision, acceptChanges })
+        let expectedBaseUpdatedAt: string | null | undefined
+        const submit = (acceptChanges: boolean) => api!.drafts.commit({ kind, key, generation: entry.snapshot.generation, revision: entry.snapshot.revision, acceptChanges, expectedBaseUpdatedAt })
         let result: unknown
         try {
           result = await submit(acceptChanges)
         }
         catch (error) {
+          expectedBaseUpdatedAt = (await api!.drafts.get(kind, key)).baseUpdatedAt
           if (!(error instanceof Error) || !error.message.includes('正式记录已变化') || !window.confirm('正式记录已变化。保留当前编辑内容并覆盖对应字段吗？取消可返回检查，草稿不会丢失。'))
             throw error
           result = await submit(true)
@@ -172,12 +210,14 @@ export function createDraftCoordinator(api: TodoApi | undefined) {
         forget(entry.kind, entry.key)
   }
   function connect() {
-    removePrepare = api?.lifecycle?.onPrepare(async () => {
+    removePrepare = api?.lifecycle?.onPrepare(async request => {
+      if (request && ['close', 'update', 'import'].includes(request.reason) && !await leave.request()) throw new Error('已取消离开')
       paused.value = true
       if (saving.value) throw new Error('正在保存修改，请稍后重试')
       await flush()
     })
     removeResume = api?.lifecycle?.onResume(result => {
+      leave.cancel()
       try {
         if (result.replaced) reset()
         const accepted: TaskSynchronization[] = []
@@ -202,6 +242,7 @@ export function createDraftCoordinator(api: TodoApi | undefined) {
     })
   }
   function dispose() {
+    leave.cancel()
     removePrepare?.()
     removeResume?.()
     for (const entry of entries.values())
@@ -209,7 +250,7 @@ export function createDraftCoordinator(api: TodoApi | undefined) {
   }
   const status = (kind: DraftKind, key: string) => entries.get(identity(kind, key))?.status ?? ''
   const error = (kind: DraftKind, key: string) => entries.get(identity(kind, key))?.error ?? ''
-  return { supported, paused, saving, epoch, synchronizedTasks, open, update, flush, commit, discard, reload, forget, reset, retainTasks, connect, dispose, status, error }
+  return { supported, paused, saving, epoch, synchronizedTasks, leave, open, update, flush, retain, commit, commitTask, hasPending, discard, reload, forget, reset, retainTasks, connect, dispose, status, error }
 }
 export type DraftCoordinator = ReturnType<typeof createDraftCoordinator>
 export const draftCoordinatorKey: InjectionKey<DraftCoordinator> = Symbol('draft-coordinator')

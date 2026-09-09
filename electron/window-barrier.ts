@@ -37,17 +37,17 @@ export class WindowBarrier {
       }
     }
   }
-  async run<Result>(reason: LifecycleReason, action: () => Promise<Result> | Result, synchronization?: { taskIds?: string[]; read?: () => TaskSynchronization[]; hold?: boolean }): Promise<Result> {
+  async run<Result>(reason: LifecycleReason, action: () => Promise<Result> | Result, synchronization?: { taskIds?: string[]; windowIds?: number[]; read?: () => TaskSynchronization[]; hold?: boolean }): Promise<Result> {
     if (this.busy)
       throw new Error('正在保留草稿或恢复数据，请稍后重试')
     this.busy = true
     let replaced = false
     let succeeded = false
     try {
-      const windows = BrowserWindow.getAllWindows().filter(window => !window.isDestroyed())
+      const windows = BrowserWindow.getAllWindows().filter(window => !window.isDestroyed() && (!synchronization?.windowIds || synchronization.windowIds.includes(window.webContents.id)))
       await Promise.all(windows.map(window => new Promise<void>((resolve, reject) => {
         const id = crypto.randomUUID()
-        const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('窗口未能确认草稿已保留，请重试')); }, 10000)
+        const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('窗口未能确认草稿已保留，请重试')); }, ['close', 'update', 'import'].includes(reason) ? 300000 : 10000)
         this.pending.set(id, { sender: window.webContents.id, resolve, reject, timer })
         window.webContents.send('lifecycle:prepare', { id, reason, ...(synchronization?.taskIds ? { taskIds: synchronization.taskIds } : {}) })
       })))

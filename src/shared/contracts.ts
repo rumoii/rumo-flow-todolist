@@ -4,7 +4,7 @@ export type { TaskPlan, PlanKind } from './planning'
 export type ArrangeTaskAction = { kind: 'plan'; target: TaskPlan | 'today' | 'tomorrow' | 'week' | 'month' | null } | { kind: 'focus'; enabled: boolean }
 export interface ArrangeTaskInput { taskId: string; updatedAt: string; generation: string; action: ArrangeTaskAction }
 export interface BatchTaskInput { targets: { id: string; updatedAt: string }[]; generation: string; action: TaskBatchAction }
-export type LifecycleReason = 'backup' | 'import' | 'close' | 'arrange' | 'update'
+export type LifecycleReason = 'backup' | 'import' | 'close' | 'blur' | 'arrange' | 'update'
 export interface TaskSynchronization { task: Task; snapshot: DraftSnapshot }
 export interface LifecycleResume { replaced: boolean; synchronizedTasks?: TaskSynchronization[] }
 export type TaskBatchAction = { kind: 'plan'; plan: TaskPlan | null } | { kind: 'deadline'; date: string | null } | { kind: 'move'; listId: string | null } | { kind: 'tags'; tagIds: string[] } | { kind: 'complete' | 'remove' | 'recover' | 'purge' }
@@ -238,7 +238,7 @@ export interface DesktopStatus {
 
 export interface BackupPayload {
   format: 'rumo-flow-backup'
-  version: 5
+  version: 6
   exportedAt: string
   taskLists: TaskList[]
   tasks: Task[]
@@ -261,7 +261,7 @@ export interface TodoApi {
     get(kind: DraftKind, key: string): Promise<DraftSnapshot>
     put(input: DraftWrite): Promise<DraftSnapshot>
     discard(input: DraftRef): Promise<DraftSnapshot>
-    commit(input: DraftRef & { acceptChanges?: boolean }): Promise<unknown>
+    commit(input: DraftRef & { acceptChanges?: boolean; expectedBaseUpdatedAt?: string | null }): Promise<unknown>
   }
   lifecycle: {
     onPrepare(callback: (request: { id: string; reason: LifecycleReason; taskIds?: string[] }) => Promise<void>): () => void

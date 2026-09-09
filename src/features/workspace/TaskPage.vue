@@ -14,7 +14,7 @@ import TaskArrangementDialog from './TaskArrangementDialog.vue'
 import FlowView from '../../components/FlowView.vue'
 import TagPage from './TagPage.vue'
 const { totalStatus, totalDeadline, unplannedOnly, dueToday, pastPlanned, tags, lists, tasks, activeView, quickTitle, quickInput, search, groupBy, temporaryTagId, loading, todayIso, selectTask, viewTitle, viewHint, taskReorderEnabled, draggedTaskId, endTaskDrag, dropTaskInZone, onWeekDrop, isTodayTask, filteredTasks, pinnedTasks, groupedRegularTasks, completedTodayCount, temporaryTag, emptyState, priorityCode, priorityClass, createTask, toggleTask, weekDates, tasksForDate, rumoFlowIcon } = useWorkspaceContext()
-const { workspaceSearch, quickPlanHint } = useWorkspaceContext()
+const { workspaceSearch, quickPlanHint, quickBusy, quickReady, quickContextHint } = useWorkspaceContext()
 const { drafts, closeMenus } = useWorkspaceContext()
 const dueExpanded = ref(false)
 const pastExpanded = ref(false)
@@ -57,11 +57,11 @@ async function exitSelection() { batch.exit(); await nextTick(); selectionTrigge
         <div v-if="search" class="keyword-filter"><button @click="workspaceSearch.show(true)">关键词：{{ search }}</button><button aria-label="清除关键词筛选" @click="search = ''">×</button></div>
         <div class="quick-add">
 <span class="quick-icon">＋</span>
-<input ref="quickInput" v-model="quickTitle" placeholder="添加一个任务，按 Enter 保存…" @keydown.enter="createTask()" />
+<input ref="quickInput" v-model="quickTitle" :disabled="quickBusy || !quickReady" placeholder="添加一个任务，按 Enter 保存…" @keydown.enter="!$event.isComposing && createTask()" />
 <span class="quick-hint">Enter</span>
 </div>
         <QuickAddHints v-model="quickTitle" :tags="tags" :lists="lists" />
-        <p class="quick-plan-hint">{{ quickPlanHint }}</p>
+        <p class="quick-plan-hint">{{ quickContextHint || quickPlanHint }}</p>
         <div v-if="activeView === 'all'" class="planning-controls">
           <SelectField v-model="totalStatus" aria-label="总计划状态" :options="[{ value: 'active', label: '进行中' }, { value: 'completed', label: '已完成' }, { value: 'all', label: '全部状态' }]" />
           <SelectField v-model="totalDeadline" aria-label="截止日期筛选" :options="[{ value: 'any', label: '任意截止日期' }, { value: 'today', label: '今天到期' }, { value: 'overdue', label: '已逾期' }, { value: 'next7', label: '未来七天到期' }, { value: 'none', label: '无截止日期' }]" />
@@ -77,6 +77,7 @@ async function exitSelection() { batch.exit(); await nextTick(); selectionTrigge
           <div :key="activeView" class="view-content" :class="{ 'today-view': activeView === 'today' }">
             <template v-if="activeView === 'week'">
               <section v-if="filteredTasks.some(task => task.plan?.kind === 'week')" class="planning-panel"><h3>本周待细化</h3><div v-for="task in filteredTasks.filter(task => task.plan?.kind === 'week')" :key="task.id" :draggable="!batch.active.value" @dragstart="!batch.active.value && (draggedTaskId = task.id)" @dragend="endTaskDrag"><TaskRow :task="task" /></div></section>
+              <div class="week-board-scroll" role="region" aria-label="本周任务看板" tabindex="0">
               <div class="week-board">
 <div v-for="date in weekDates()" :key="date" class="day-column" @dragover.prevent @drop="!batch.active.value && onWeekDrop($event, date)">
 <div class="day-heading" :class="{ today: date === todayIso }">
@@ -86,19 +87,22 @@ async function exitSelection() { batch.exit(); await nextTick(); selectionTrigge
 <div v-if="!tasksForDate(date).length" class="day-empty">拖放任务到这里</div>
 <TransitionGroup name="task-card" tag="div" class="day-task-items">
 <article v-for="task in tasksForDate(date)" :key="task.id" :data-task-id="task.id" class="task-card" :draggable="!batch.active.value" @dragstart="!batch.active.value && (draggedTaskId = task.id)" @dragend="endTaskDrag" @click="selectTask(task)">
+<div class="task-card-heading">
 <TaskSelection :task="task" />
 <button :disabled="batch?.active.value" class="check" :aria-label="task.status === 'completed' ? '恢复任务' : '完成任务'" :class="{ checked: task.status === 'completed' }" @click.stop="toggleTask(task)">{{ task.status === 'completed' ? '✓' : '' }}</button>
-<span class="task-card-body">
-<span v-if="task.priority !== 'none'" :class="['priority-badge', priorityClass(task.priority)]">{{ priorityCode(task.priority) }}</span>
-<span class="task-title" role="button" tabindex="0" :aria-label="`打开任务 ${task.title}`" @keydown.enter.prevent.stop="selectTask(task)" @keydown.space.prevent.stop="selectTask(task)">{{ task.title }}</span>
-<TaskPlanButton :task="task" />
-<small v-if="task.focusDate">★ 当日重点</small>
-</span>
+<span class="task-title" role="button" tabindex="0" :title="task.title" :aria-label="`打开任务 ${task.title}`" @keydown.enter.prevent.stop="selectTask(task)" @keydown.space.prevent.stop="selectTask(task)">{{ task.title }}</span>
 <TaskMenu :task="task" />
+</div>
+<div class="task-card-body">
+<TaskPlanButton :task="task" />
+<span v-if="task.priority !== 'none'" :class="['priority-badge', priorityClass(task.priority)]">{{ priorityCode(task.priority) }}</span>
+<small v-if="task.focusDate">★ 当日重点</small>
+</div>
 </article>
 </TransitionGroup>
 </div>
 </div>
+              </div>
             </template>
             <template v-else-if="loading">
 <div class="loading-state">
@@ -123,7 +127,7 @@ async function exitSelection() { batch.exit(); await nextTick(); selectionTrigge
 <img class="empty-orbit" :src="rumoFlowIcon" alt="" aria-hidden="true" />
 <h2>{{ emptyState.title }}</h2>
 <p>{{ emptyState.hint }}</p>
-<button v-if="emptyState.canCreate" class="text-action" @click="createTask('整理我的下一步')">＋ 添加第一项任务</button>
+<button v-if="emptyState.canCreate" class="text-action" @click="quickInput?.focus()">＋ 添加第一项任务</button>
 </div>
 </template>
             <div v-else class="task-list">

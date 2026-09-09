@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import DraftStatus from './components/DraftStatus.vue'
+import EditorLeaveDialog from './components/EditorLeaveDialog.vue'
 import QuickAddHints from './components/QuickAddHints.vue'
 import { createDraftCoordinator, draftCoordinatorKey } from './composables/draft-coordinator'
 import { parseQuickAdd } from './shared/quick-add'
-import { ensureTags } from './shared/tag-utils'
 import type { AppSettings, Tag, Task, TaskList } from './shared/contracts'
 import { planLabel } from './shared/planning'
 
@@ -69,42 +69,37 @@ async function discardCapture() {
   try { await drafts.discard('capture', 'global'); title.value = ''; await refreshCapture() } catch { message.value = '放弃草稿失败'; messageKind.value = 'error' }
 }
 
-async function submit() {
+async function submit(forLeaving = false) {
   if (submitting.value || loadingCapture.value) return
   const parsed = parseQuickAdd(title.value, lists.value, tags.value)
-  if (!parsed.input.title.trim()) return
+  if (!parsed.input.title.trim()) {
+    message.value = '请填写任务标题'
+    messageKind.value = 'error'
+    if (forLeaving) throw new Error(message.value)
+    return
+  }
 
   submitting.value = true
   try {
-    if (drafts.supported) {
-      const task = await drafts.commit('capture', 'global') as Task
-      title.value = ''
-      await drafts.open('capture', 'global', { title: '' })
-      messageKind.value = 'success'
-      message.value = savedDestination(task)
-      window.clearTimeout(closeTimer)
-      closeTimer = window.setTimeout(closeCapture, 720)
-      return
-    }
-    const resolved = await ensureTags(window.todoApi, tags.value, parsed.tagNames)
-    const task = await window.todoApi.tasks.create({ ...parsed.input, tagIds: resolved.tags.map(tag => tag.id) })
+    const task = await drafts.commit('capture', 'global') as Task
     title.value = ''
-    messageKind.value = resolved.failed.length ? 'error' : 'success'
-    message.value = resolved.failed.length ? `${savedDestination(task)}，标签创建失败：${resolved.failed.join('、')}` : savedDestination(task)
-
-    if (!resolved.failed.length) {
-      window.clearTimeout(closeTimer)
-      closeTimer = window.setTimeout(closeCapture, 720)
-    }
-  } catch {
+    await drafts.open('capture', 'global', { title: '' })
+    messageKind.value = 'success'
+    message.value = savedDestination(task)
+    window.clearTimeout(closeTimer)
+    if (!forLeaving) closeTimer = window.setTimeout(closeCapture, 720)
+  } catch (error) {
     messageKind.value = 'error'
     message.value = '保存失败，请稍后重试'
     await nextTick()
     input.value?.focus()
+    if (forLeaving) throw error
   } finally {
     submitting.value = false
   }
 }
+const unregisterLeave = drafts.leave.register({ scope: 'capture', active: () => document.visibilityState !== 'hidden', pending: () => title.value.trim() ? [{ id: 'capture:global', label: '快速捕获中的任务', save: () => submit(true), retain: () => drafts.retain('capture', 'global') }] : [] })
+onBeforeUnmount(unregisterLeave)
 
 function savedDestination(task: Task) {
   return `已保存到${lists.value.find(list => list.id === task.listId)?.name ?? '收集箱'} · ${planLabel(task.plan)}`
@@ -113,7 +108,7 @@ onBeforeUnmount(() => { window.clearTimeout(closeTimer); removeSettingsListener?
 </script>
 
 <template>
-  <main class="capture-shell" :inert="drafts.paused.value || drafts.saving.value || closing" @keydown.esc.prevent="closeCapture">
+  <main class="capture-shell" :inert="drafts.paused.value || drafts.saving.value || drafts.leave.opened.value || closing" @keydown.esc.prevent="closeCapture">
     <DraftStatus kind="capture" draft-key="global" @discard="discardCapture" />
     <section class="capture-card">
       <header class="capture-header">
@@ -135,7 +130,7 @@ onBeforeUnmount(() => { window.clearTimeout(closeTimer); removeSettingsListener?
       <QuickAddHints v-model="title" :tags="tags" :lists="lists" />
       <div class="capture-input-wrap" :class="{ 'has-message': message }">
         <span class="capture-input-icon" aria-hidden="true">＋</span>
-        <input ref="input" v-model="title" :disabled="submitting || loadingCapture" aria-label="快速捕获任务" placeholder="写下任务…" @keydown.enter.prevent="submit">
+        <input ref="input" v-model="title" :disabled="submitting || loadingCapture" aria-label="快速捕获任务" placeholder="写下任务…" @keydown.enter.prevent="!$event.isComposing && submit()">
         <kbd>Enter</kbd>
       </div>
 
@@ -153,6 +148,7 @@ onBeforeUnmount(() => { window.clearTimeout(closeTimer); removeSettingsListener?
       </Transition>
     </section>
   </main>
+  <EditorLeaveDialog :guard="drafts.leave" />
 </template>
 
 <style scoped>

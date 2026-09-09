@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
+import { installDraftApi } from './draft-api-fixture'
 import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import { draftCoordinatorKey, createDraftCoordinator } from '../src/composables/draft-coordinator'
 import { navigationKey } from '../src/features/workspace/navigation'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import FlowView from '../src/components/FlowView.vue'
 import type { DailyReview, FlowDay, TodoApi, VideoReflection } from '../src/shared/contracts'
 
@@ -30,14 +31,17 @@ function createFlowApi(seed: VideoReflection[] = []) {
     tasks: { list: vi.fn(async () => []) },
     desktop: { onDataChanged: vi.fn(() => () => undefined), openExternal: vi.fn(async () => undefined) },
   } as unknown as TodoApi
-  return { api, day }
+  return { api: installDraftApi(api), day }
 }
 
 describe('FlowView', () => {
+  beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} }))
+
   it('keeps the original day and draft when backfill loading fails', async () => {
     const { api } = createFlowApi()
     Object.defineProperty(window, 'todoApi', { configurable: true, value: api })
-    const wrapper = mount(FlowView, { props: { todayCompletedCount: 0, todayPendingCount: 0 }, global: { provide: { [draftCoordinatorKey as symbol]: createDraftCoordinator(api), [navigationKey as symbol]: { flowTarget: ref(null), openTask: vi.fn(), openFlow: vi.fn() } } } })
+    const coordinator = createDraftCoordinator(api)
+    const wrapper = mount(FlowView, { props: { todayCompletedCount: 0, todayPendingCount: 0 }, global: { provide: { [draftCoordinatorKey as symbol]: coordinator, [navigationKey as symbol]: { flowTarget: ref(null), openTask: vi.fn(), openFlow: vi.fn() } } } })
     await flushPromises()
     await wrapper.find('#flow-tab-review').trigger('click')
     await flushPromises()
@@ -46,6 +50,8 @@ describe('FlowView', () => {
     await wrapper.findAll('button').find(button => button.text() === '补记往日')!.trigger('click')
     await wrapper.get('[aria-label="补录日期"]').setValue('2020-02-03')
     await wrapper.get('.backfill-form').trigger('submit')
+    await flushPromises()
+    await coordinator.leave.choose('retain')
     await flushPromises()
     expect(wrapper.text()).toContain('心流记录加载失败')
     expect((wrapper.get('[placeholder="哪件事值得肯定？"]').element as HTMLTextAreaElement).value).toBe('不要丢失今天的输入')
@@ -108,6 +114,7 @@ describe('FlowView', () => {
     expect(api.flow.createVideo).toHaveBeenCalled()
 
     await wrapper.findAll('button').find((button) => button.text().includes('每日复盘'))!.trigger('click')
+    await flushPromises()
     await wrapper.findAll('button').find((button) => button.text() === '保存今日复盘')!.trigger('click')
     await flushPromises()
     expect(api.flow.saveReview).toHaveBeenCalledWith(expect.objectContaining({ inputType: 'none', inputVideoId: null }))
@@ -171,7 +178,8 @@ describe('FlowView', () => {
   it('switches tabs with the keyboard and keeps an unfinished review draft', async () => {
     const { api } = createFlowApi()
     Object.defineProperty(window, 'todoApi', { configurable: true, value: api })
-    const wrapper = mount(FlowView, { global: { provide: { [draftCoordinatorKey as symbol]: createDraftCoordinator(api), [navigationKey as symbol]: { flowTarget: ref(null), openTask: vi.fn(), openFlow: vi.fn() } } }, props: { todayCompletedCount: 0, todayPendingCount: 0 }, attachTo: document.body })
+    const coordinator = createDraftCoordinator(api)
+    const wrapper = mount(FlowView, { global: { provide: { [draftCoordinatorKey as symbol]: coordinator, [navigationKey as symbol]: { flowTarget: ref(null), openTask: vi.fn(), openFlow: vi.fn() } } }, props: { todayCompletedCount: 0, todayPendingCount: 0 }, attachTo: document.body })
     await flushPromises()
 
     const inputTab = wrapper.find('#flow-tab-input')
@@ -181,8 +189,16 @@ describe('FlowView', () => {
     expect(wrapper.find('#flow-tab-review').attributes('aria-selected')).toBe('true')
     await wrapper.find('[placeholder="哪件事值得肯定？"]').setValue('没有保存的复盘草稿')
     await wrapper.find('#flow-tab-input').trigger('click')
+    await flushPromises()
+    expect(coordinator.leave.opened.value).toBe(true)
+    await coordinator.leave.choose('retain')
+    await flushPromises()
+    expect(inputTab.attributes('aria-selected')).toBe('true')
     await wrapper.find('#flow-tab-review').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('#flow-tab-review').attributes('aria-selected')).toBe('true')
     expect((wrapper.find('[placeholder="哪件事值得肯定？"]').element as HTMLTextAreaElement).value).toBe('没有保存的复盘草稿')
+    expect(api.flow.saveReview).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

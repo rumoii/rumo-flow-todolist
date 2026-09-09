@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-test('preserves drafts across navigation, restart and v5 backup through real IPC and SQLite', async () => {
+test('preserves drafts across navigation, restart and v6 backup through real IPC and SQLite', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rumo-electron-'))
   let application: ElectronApplication | undefined
   async function launch() {
@@ -22,6 +22,7 @@ test('preserves drafts across navigation, restart and v5 backup through real IPC
     await page.getByPlaceholder('哪件事值得肯定？').fill('真实桌面未提交的复盘')
     await expect(page.getByText('草稿已保留', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: /^今天/ }).click()
+    await page.getByRole('button', { name: '保留草稿并继续' }).click()
     await page.getByRole('button', { name: '心流 记录与复盘', exact: true }).click()
     await expect(page.getByPlaceholder('哪件事值得肯定？')).toHaveValue('真实桌面未提交的复盘')
     const date = new Date().toLocaleDateString('sv-SE')
@@ -34,6 +35,8 @@ test('preserves drafts across navigation, restart and v5 backup through real IPC
     await capture.getByRole('textbox', { name: '快速捕获任务', exact: true }).press('Enter')
     await expect.poll(() => page.evaluate(() => window.todoApi.tasks.list().then(tasks => tasks.length))).toBe(1)
     await expect(page.getByRole('heading', { name: '心流', exact: true })).toBeVisible()
+    await page.evaluate(() => { void window.todoApi.tasks.list() })
+    await application!.evaluate(({ app }) => app.exit(0)).catch(() => undefined)
     await application!.close()
     application = undefined
     page = await launch()
@@ -48,9 +51,11 @@ test('preserves drafts across navigation, restart and v5 backup through real IPC
     }, backupPath)
     await page.evaluate(() => window.todoApi.backup.export())
     const backup = JSON.parse(fs.readFileSync(backupPath, 'utf8'))
-    expect(backup.version).toBe(5)
+    expect(backup.version).toBe(6)
     expect(backup.drafts.some((draft: { payload: { didWell?: string } }) => draft.payload.didWell === '真实桌面未提交的复盘')).toBe(true)
-    await page.evaluate(backup => window.todoApi.backup.import(backup), backup)
+    const importing = page.evaluate(backup => window.todoApi.backup.import(backup), backup)
+    await page.getByRole('button', { name: '保留草稿并继续' }).click()
+    await importing
     await expect(page.getByPlaceholder('哪件事值得肯定？')).toHaveValue('真实桌面未提交的复盘')
     await page.getByRole('button', { name: '保存今日复盘', exact: true }).click()
     await expect(page.getByText('复盘已保存', { exact: true })).toBeVisible()
@@ -58,12 +63,13 @@ test('preserves drafts across navigation, restart and v5 backup through real IPC
     expect(errors).toEqual([])
     await page.screenshot({ path: 'test-results/electron-flow.png' })
   } finally {
+    await application?.evaluate(({ app }) => app.exit(0)).catch(() => undefined)
     await application?.close()
     fs.rmSync(directory, { recursive: true, force: true })
   }
 })
 
-test('restores task, video and capture inputs after abrupt exit without submitting them', async () => {
+test('restores autosaved task and unsubmitted video and capture after abrupt exit', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rumo-electron-editors-'))
   let application: ElectronApplication | undefined
   async function launch() {
@@ -77,10 +83,10 @@ test('restores task, video and capture inputs after abrupt exit without submitti
     const date = new Date().toLocaleDateString('sv-SE')
     const task = await page.evaluate(date => window.todoApi.tasks.create({ title: '已保存任务', plan: { kind: 'day', start: date } }), date)
     await page.locator('.task-row .task-main').filter({ hasText: '已保存任务' }).click()
-    await page.getByPlaceholder('记录一些想法…').fill('不能被后台刷新覆盖的备注')
-    await expect(page.getByText('草稿已保留', { exact: true })).toBeVisible()
+    await page.getByPlaceholder('补充背景、思路或参考信息…').fill('不能被后台刷新覆盖的备注')
+    await expect(page.locator('.editor-save-state')).toContainText('已保存')
     await page.evaluate(() => window.todoApi.tasks.create({ title: '触发后台刷新' }))
-    await expect(page.getByPlaceholder('记录一些想法…')).toHaveValue('不能被后台刷新覆盖的备注')
+    await expect(page.getByPlaceholder('补充背景、思路或参考信息…')).toHaveValue('不能被后台刷新覆盖的备注')
     await page.getByRole('button', { name: '关闭', exact: true }).click()
     const video = await page.evaluate(date => window.todoApi.flow.createVideo({ date, sourceUrl: 'https://example.com/test' }), date)
     await page.getByRole('button', { name: '心流 记录与复盘', exact: true }).click()
@@ -98,9 +104,9 @@ test('restores task, video and capture inputs after abrupt exit without submitti
     application = undefined
     page = await launch()
     await page.locator('.task-row .task-main').filter({ hasText: '已保存任务' }).click()
-    await expect(page.getByPlaceholder('记录一些想法…')).toHaveValue('不能被后台刷新覆盖的备注')
-    expect(await page.evaluate(id => window.todoApi.tasks.list().then(tasks => tasks.find(task => task.id === id)?.notes), task.id)).toBe('')
-    await page.getByRole('button', { name: '保存更改', exact: true }).click()
+    await expect(page.getByPlaceholder('补充背景、思路或参考信息…')).toHaveValue('不能被后台刷新覆盖的备注')
+    expect(await page.evaluate(id => window.todoApi.tasks.list().then(tasks => tasks.find(task => task.id === id)?.notes), task.id)).toBe('不能被后台刷新覆盖的备注')
+    await page.locator('.title-input').blur()
     await expect.poll(() => page.evaluate(id => window.todoApi.tasks.list().then(tasks => tasks.find(task => task.id === id)?.notes), task.id)).toBe('不能被后台刷新覆盖的备注')
     await page.getByRole('button', { name: '关闭', exact: true }).click()
     await page.getByRole('button', { name: '心流 记录与复盘', exact: true }).click()

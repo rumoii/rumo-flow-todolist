@@ -14,7 +14,7 @@ function setup() {
   const keyword = ref('原筛选')
   const search = useWorkspaceSearch(view, ref('今天'), keyword)
   const flush = vi.fn(async () => undefined)
-  const openTask = vi.fn(async () => undefined)
+  const openTask = vi.fn(async () => true)
   const apiSearch = vi.fn(async (_text: string): Promise<SearchHit[]> => [])
   window.todoApi = { tasks: { search: apiSearch } } as unknown as TodoApi
   const wrapper = mount(defineComponent({

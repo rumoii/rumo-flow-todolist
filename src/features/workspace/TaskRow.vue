@@ -25,11 +25,11 @@ const { arrangement, lists, activeView, todayIso, selectTask, taskReorderEnabled
 <div class="task-meta">
 <TaskPlanButton :task="task" /><span v-if="task.focusDate && activeView !== 'today'">★ 当日重点</span>
 <span v-if="task.dueDate" :class="{ overdue: task.status === 'active' && task.dueDate < todayIso }">◷ {{ dateLabel(task.dueDate) }}</span>
-<span v-if="lists.find(list => list.id === task.listId)" class="list-meta">
+<span v-if="lists.find(list => list.id === task.listId)" class="list-meta" :title="lists.find(list => list.id === task.listId)?.name">
 <i class="list-dot" :style="{ background: lists.find(list => list.id === task.listId)?.color || '#856AF9' }">
-</i>{{ lists.find(list => list.id === task.listId)?.name }}</span>
+</i><span class="list-meta-name">{{ lists.find(list => list.id === task.listId)?.name }}</span></span>
 <span v-if="task.notes">▤ 有备注</span>
-<button v-for="tag in task.tags.slice(0, 3)" :key="tag.id" class="task-tag" @click.stop="filterByTag(tag)">#{{ tag.name }}</button>
+<button v-for="tag in task.tags.slice(0, 3)" :key="tag.id" class="task-tag" :title="tag.name" @click.stop="filterByTag(tag)">#{{ tag.name }}</button>
 <span v-if="task.tags.length > 3" class="task-tag-more">+{{ task.tags.length - 3 }}</span>
 </div>
 </div>

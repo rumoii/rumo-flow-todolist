@@ -16,12 +16,12 @@ function batch(ids: string[], action: import('../src/shared/contracts').TaskBatc
 beforeEach(() => { useDatabaseForTests(path.join(directory, `${crypto.randomUUID()}.sqlite`)); repository = new Repository() })
 afterAll(() => { closeDatabase(); fs.rmSync(directory, { recursive: true, force: true }) })
 
-it('persists update-check opt-out in v5 backups and validates boolean input', () => {
+it('persists update-check opt-out in v6 backups and validates boolean input', () => {
   expect(repository.settings.getSettings().automaticUpdateChecks).toBe(true)
   expect(() => repository.settings.updateSettings({ automaticUpdateChecks: 'yes' } as never)).toThrow('自动检查更新')
   repository.settings.updateSettings({ automaticUpdateChecks: false })
   const backup = repository.backup.exportBackup()
-  expect(backup.version).toBe(5)
+  expect(backup.version).toBe(6)
   expect(backup.settings.automaticUpdateChecks).toBe(false)
   repository.settings.updateSettings({ automaticUpdateChecks: true })
   repository.backup.importBackup(backup)
@@ -128,7 +128,7 @@ it('rolls migration DDL back if the final schema-version write fails', async () 
     expect(database.prepare("SELECT name FROM sqlite_master WHERE name='action_links'").get()).toBeUndefined()
   } finally { database.close() }
 })
-it('rejects malformed v5 fields before replacing the current database', () => {
+it('rejects malformed v6 fields before replacing the current database', () => {
   const task = repository.tasks.createTask({ title: '保留数据' })
   const backup = repository.backup.exportBackup()
   delete (backup.tasks[0] as Partial<typeof task>).plan
@@ -173,7 +173,7 @@ it('searches formal content literally and derives selected-day task facts', () =
   repository.tasks.removeTask(task.id)
   expect(repository.actions.search('100%_')).toHaveLength(1)
 })
-it('round trips v5 plans, trash, action tombstones and drafts and rejects v1-v4', () => {
+it('round trips v6 plans, trash, action tombstones and drafts and rejects v1-v4', () => {
   const review = repository.flow.saveFlowReview({ date: '2026-09-07' })
   const task = repository.actions.create({ requestId: crypto.randomUUID(), source: { kind: 'review', key: review.date }, sourceUpdatedAt: review.updatedAt, task: { title: '行动', plan: planFor('week', review.date) } })
   repository.tasks.removeTask(task.id)
@@ -183,7 +183,7 @@ it('round trips v5 plans, trash, action tombstones and drafts and rejects v1-v4'
   repository.backup.importBackup(backup)
   expect(repository.tasks.getTask(task.id)).toMatchObject({ plan: task.plan, deletedAt: expect.any(String) })
   expect(repository.actions.links()).toHaveLength(1)
-  for (const version of [1, 2, 3, 4]) expect(() => repository.backup.importBackup({ ...backup, version } as never)).toThrow('仅支持 v5')
+  for (const version of [1, 2, 3, 4]) expect(() => repository.backup.importBackup({ ...backup, version } as never)).toThrow('仅支持 v6')
   expect(repository.drafts.get('capture', 'global').record?.payload).toEqual({ title: '暂存' })
 })
 it('takes a consistent v8 snapshot once and upgrades task drafts without inferring plans', () => {
@@ -191,7 +191,7 @@ it('takes a consistent v8 snapshot once and upgrades task drafts without inferri
   const snapshot = repository.drafts.get('task', task.id)
   repository.drafts.put({ ...snapshot, kind: 'task', key: task.id, payload: taskToDraft(task) })
   const database = getDatabase()
-  database.exec("UPDATE editor_drafts SET version=1,payload=json_remove(payload,'$.plan','$.focusDate'); DROP TRIGGER action_video_removed; DROP TRIGGER action_review_removed; DROP TABLE action_links; DROP INDEX idx_tasks_deletion_batch; ALTER TABLE tasks DROP COLUMN plan_json; ALTER TABLE tasks DROP COLUMN focus_date; ALTER TABLE tasks DROP COLUMN deletion_batch; DELETE FROM schema_migrations WHERE version=9;")
+  database.exec("UPDATE editor_drafts SET version=1,payload=json_remove(payload,'$.plan','$.focusDate'); DROP TRIGGER action_video_removed; DROP TRIGGER action_review_removed; DROP TABLE action_links; DROP INDEX idx_tasks_deletion_batch; ALTER TABLE tasks DROP COLUMN plan_json; ALTER TABLE tasks DROP COLUMN focus_date; ALTER TABLE tasks DROP COLUMN deletion_batch; DELETE FROM schema_migrations WHERE version>=9;")
   const before = fs.existsSync(path.join(directory, 'backups')) ? fs.readdirSync(path.join(directory, 'backups')) : []
   closeDatabase()
   expect(repository.tasks.getTask(task.id)).toMatchObject({ dueDate: '2026-09-07', plan: null, focusDate: null })

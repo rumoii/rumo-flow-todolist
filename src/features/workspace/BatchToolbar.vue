@@ -34,7 +34,7 @@ function apply() {
         <PlanField v-if="operation === 'plan'" v-model="plan" />
         <input v-if="operation === 'deadline'" v-model="date" type="date" aria-label="批量截止日期" />
         <SelectField v-if="operation === 'move'" v-model="list" aria-label="批量清单" :options="[{ value: '', label: '收集箱' }, ...lists.map(item => ({ value: item.id, label: item.name }))]" />
-        <div v-if="operation === 'tags'" class="batch-tags"><label v-for="tag in tags" :key="tag.id"><input v-model="tagIds" type="checkbox" :value="tag.id" />{{ tag.name }}</label><span v-if="!tags.length">请先创建标签</span></div>
+        <div v-if="operation === 'tags'" class="batch-tags"><label v-for="tag in tags" :key="tag.id" :title="tag.name"><input v-model="tagIds" type="checkbox" :value="tag.id" /><span>{{ tag.name }}</span></label><span v-if="!tags.length">请先创建标签</span></div>
         <button :disabled="!count || !valid" @click="apply">{{ confirm ? `确认移入回收站（${count} 项）` : '应用' }}</button>
         <button v-if="confirm" @click="confirm = false">取消删除</button>
       </div>

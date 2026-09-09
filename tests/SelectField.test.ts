@@ -11,6 +11,22 @@ const options = [
 ]
 
 describe('SelectField', () => {
+  it('does not reactivate its enclosing label after selecting an option', async () => {
+    const label = document.createElement('label')
+    document.body.append(label)
+    const wrapper = mount(SelectField, { attachTo: label, props: { modelValue: null, options } })
+    const trigger = wrapper.get('[role="combobox"]')
+    expect(trigger.attributes('title')).toBe('不提醒')
+    await trigger.trigger('click')
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+    wrapper.findAll('[role="option"]')[1].element.dispatchEvent(click)
+    await wrapper.vm.$nextTick()
+    expect(click.defaultPrevented).toBe(true)
+    expect(trigger.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[5]])
+    wrapper.unmount()
+    label.remove()
+  })
   it('keeps the menu open while its own list or its scroll container scrolls', async () => {
     const wrapper = mount(SelectField, { attachTo: document.body, props: { modelValue: 60, options } })
     await wrapper.get('[role="combobox"]').trigger('click')

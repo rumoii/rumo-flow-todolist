@@ -209,10 +209,10 @@ describe('Repository with an isolated SQLite database', () => {
     oldBackup.taskLists.forEach((item: Record<string, unknown>) => delete item.isPinned)
     oldBackup.tasks.forEach((item: Record<string, unknown>) => delete item.isPinned)
 
-    expect(() => repository.backup.importBackup(oldBackup)).toThrow('仅支持 v5')
+    expect(() => repository.backup.importBackup(oldBackup)).toThrow('仅支持 v6')
     expect(repository.organization.listLists()[0].isPinned).toBe(true)
     expect(repository.tasks.listTasks()[0].isPinned).toBe(true)
-    expect(getDatabase().prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toEqual({ version: 9 })
+    expect(getDatabase().prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toEqual({ version: 10 })
   })
 
   it('rejects invalid persisted pin values before writing', () => {
@@ -223,7 +223,7 @@ describe('Repository with an isolated SQLite database', () => {
     expect(repository.organization.listLists()).toHaveLength(0)
   })
 
-  it('stores tags, saved filters, reminder fields and exports backup version 5', () => {
+  it('stores tags, saved filters, reminder fields and exports backup version 6', () => {
     const repository = new Repository()
     const tag = repository.organization.createTag({ name: '紧急', color: '#ff5d5d' })
     const task = repository.tasks.createTask({ title: '带提醒任务', dueDate: '2026-08-28', dueTime: '10:30', reminderMinutesBefore: 15, tagIds: [tag.id] })
@@ -232,7 +232,7 @@ describe('Repository with an isolated SQLite database', () => {
     expect(repository.tasks.listTasks({ search: '紧急' }).map((item) => item.id)).toEqual([task.id])
     expect(repository.organization.listSavedFilters()[0]).toEqual(filter)
     const backup = repository.backup.exportBackup()
-    expect(backup.version).toBe(5)
+    expect(backup.version).toBe(6)
     expect(backup.taskTags).toEqual([{ taskId: task.id, tagId: tag.id }])
   })
 
@@ -267,7 +267,7 @@ describe('Repository with an isolated SQLite database', () => {
     expect(repository.tasks.listTasks({ search: '重复撤销' })).toHaveLength(2)
   })
 
-  it('round-trips version 5 backups with parent and generated task links', () => {
+  it('round-trips version 6 backups with parent and generated task links', () => {
     const repository = new Repository()
     const recurring = repository.tasks.createTask({ title: '备份重复任务', dueDate: '2026-08-28', recurrence: { frequency: 'daily' } })
     repository.tasks.createTask({ title: '备份子任务', parentTaskId: recurring.id })
@@ -314,7 +314,7 @@ describe('Repository with an isolated SQLite database', () => {
     expect(pastVideo.date).toBe(pastDate)
   })
 
-  it('round-trips flow data in version 5 backups and rejects old version 2 payloads', () => {
+  it('round-trips flow data in version 6 backups and rejects old version 2 payloads', () => {
     const repository = new Repository()
     const date = '2026-08-30'
     const video = repository.flow.createFlowVideo({ date, title: '备份视频', sourceUrl: 'https://example.com/video' })
@@ -327,7 +327,7 @@ describe('Repository with an isolated SQLite database', () => {
     const oldBackup = { ...backup, version: 2 as const }
     delete oldBackup.flowDays
     delete oldBackup.videoReflections
-    expect(() => repository.backup.importBackup(oldBackup as never)).toThrow('仅支持 v5')
+    expect(() => repository.backup.importBackup(oldBackup as never)).toThrow('仅支持 v6')
     expect(repository.flow.getFlowDay(date).review.reflection).toBe('保留这条反思')
   })
 

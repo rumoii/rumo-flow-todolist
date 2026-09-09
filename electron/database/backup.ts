@@ -12,7 +12,7 @@ import { ActionService } from './action-service'
 import { validPlan } from '../../src/shared/planning'
 export class BackupService {
   constructor(private readonly tasks: TaskRepository, private readonly organization: OrganizationRepository, private readonly flow: FlowRepository, private readonly settings: SettingsRepository, private readonly drafts: DraftRepository) { }
-  exportBackup(): BackupPayload { const db = getDatabase(); const tasks = this.tasks.listTasks({ includeDeleted: true }); return { format: 'rumo-flow-backup', version: 5, actionLinks: new ActionService(this.tasks).links(), drafts: this.drafts.list(), exportedAt: timestamp(), taskLists: this.organization.listLists(), tasks, recurrenceRules: (db.prepare('SELECT * FROM recurrence_rules WHERE task_id IN (SELECT id FROM tasks)').all() as any[]).map(mapRule), tags: this.organization.listTags(), taskTags: (db.prepare('SELECT task_id AS taskId,tag_id AS tagId FROM task_tags WHERE task_id IN (SELECT id FROM tasks)').all() as any[]), savedFilters: this.organization.listSavedFilters(), flowDays: (db.prepare('SELECT * FROM flow_days ORDER BY entry_date').all() as any[]).map((row) => this.flow.mapFlowDay(row)), videoReflections: (db.prepare('SELECT * FROM flow_videos ORDER BY entry_date,created_at').all() as any[]).map((row) => this.flow.mapFlowVideo(row)), settings: { ...this.settings.getSettings() } }; }
+  exportBackup(): BackupPayload { const db = getDatabase(); const tasks = this.tasks.listTasks({ includeDeleted: true }); return { format: 'rumo-flow-backup', version: 6, actionLinks: new ActionService(this.tasks).links(), drafts: this.drafts.list(), exportedAt: timestamp(), taskLists: this.organization.listLists(), tasks, recurrenceRules: (db.prepare('SELECT * FROM recurrence_rules WHERE task_id IN (SELECT id FROM tasks)').all() as any[]).map(mapRule), tags: this.organization.listTags(), taskTags: (db.prepare('SELECT task_id AS taskId,tag_id AS tagId FROM task_tags WHERE task_id IN (SELECT id FROM tasks)').all() as any[]), savedFilters: this.organization.listSavedFilters(), flowDays: (db.prepare('SELECT * FROM flow_days ORDER BY entry_date').all() as any[]).map((row) => this.flow.mapFlowDay(row)), videoReflections: (db.prepare('SELECT * FROM flow_videos ORDER BY entry_date,created_at').all() as any[]).map((row) => this.flow.mapFlowVideo(row)), settings: { ...this.settings.getSettings() } }; }
   importBackup(payload: BackupPayload): {
     importedTasks: number
     importedLists: number
@@ -58,7 +58,7 @@ export class BackupService {
     return { importedTasks: payload.tasks.length, importedLists: payload.taskLists.length, importedRules: payload.recurrenceRules.length, importedReviews: flowDays.filter((item) => item.savedAt).length, importedVideos: videoReflections.length }
   }
   private validateBackup(payload: BackupPayload): void {
-    if (!payload || payload.version !== 5 || payload.format !== 'rumo-flow-backup') throw new Error('仅支持 v5 备份；旧数据库请使用一次性升级')
+    if (!payload || payload.version !== 6 || payload.format !== 'rumo-flow-backup') throw new Error('仅支持 v6 备份，当前备份版本不受支持')
     if (![payload.tasks,payload.taskLists,payload.recurrenceRules,payload.tags,payload.taskTags,payload.savedFilters,payload.flowDays,payload.videoReflections,payload.actionLinks,payload.drafts].every(Array.isArray)) throw new Error('备份数据缺失')
     this.drafts.validateBackup(payload)
     this.settings.validateSettings(payload.settings as Partial<AppSettings>)

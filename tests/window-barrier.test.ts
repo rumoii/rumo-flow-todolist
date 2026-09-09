@@ -8,6 +8,19 @@ import { WindowBarrier } from '../electron/window-barrier'
 beforeEach(() => { state.windows = []; state.listeners.clear() })
 afterEach(() => vi.useRealTimers())
 
+it('closing one window only asks that window, while quitting still covers every window', async () => {
+  const prepared: number[] = []
+  state.windows = [1, 2].map(id => ({ isDestroyed: () => false, webContents: { id, send: vi.fn((channel, payload) => {
+    if (channel === 'lifecycle:prepare') { prepared.push(id); state.listeners.get('lifecycle:ack')!({ sender: { id } }, payload) }
+  }) } }))
+  const barrier = new WindowBarrier()
+  await barrier.run('close', () => undefined, { windowIds: [2] })
+  expect(prepared).toEqual([2])
+  prepared.length = 0
+  await barrier.run('close', () => undefined)
+  expect(prepared).toEqual([1, 2])
+})
+
 it('resumes all windows after a rejected flush without running the arrangement', async () => {
   const requests: Array<{ id: string }> = []
   state.windows = [1, 2].map(id => ({ isDestroyed: () => false, webContents: { id, send: vi.fn((channel, payload) => { if (channel === 'lifecycle:prepare') requests.push(payload) }) } }))

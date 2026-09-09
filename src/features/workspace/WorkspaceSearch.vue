@@ -38,9 +38,8 @@ async function openHit(hit: SearchHit) {
   error.value = ''
   try {
     await drafts.flush()
-    origin = null
-    if (hit.kind === 'task') await navigation.openTask(hit.key)
-    else await navigation.openFlow(hit.date!, hit.kind === 'video' ? hit.key : undefined)
+    const opened = hit.kind === 'task' ? await navigation.openTask(hit.key) : await navigation.openFlow(hit.date!, hit.kind === 'video' ? hit.key : undefined)
+    if (!opened) return
     origin = null
     search.open.value = false
   } catch { error.value = '草稿保留失败，未切换页面，请重试' }

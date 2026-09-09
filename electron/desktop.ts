@@ -7,12 +7,12 @@ export class DesktopController {
   private capture?: BrowserWindow
   private quitting = false
   private closing = new Set<number>()
-  private closeGuard: () => Promise<boolean> = async () => true
+  private closeGuard: (window: BrowserWindow, reason: 'close' | 'blur') => Promise<boolean> = async () => true
   private windowGuard: () => boolean = () => true
   shortcut = 'Ctrl+Alt+Space'
   shortcutRegistered = false
   constructor(private readonly mainWindow: () => BrowserWindow | undefined, private readonly createMain: () => BrowserWindow, private readonly iconPath: string, private readonly rendererUrl: string | undefined, private readonly rendererFile: string) { }
-  setCloseGuard(guard: () => Promise<boolean>): void { this.closeGuard = guard; }
+  setCloseGuard(guard: (window: BrowserWindow, reason: 'close' | 'blur') => Promise<boolean>): void { this.closeGuard = guard; }
   setWindowGuard(guard: () => boolean): void { this.windowGuard = guard; }
   start(shortcut: string): void { this.shortcut = shortcut; this.createTray(); this.registerShortcut(shortcut); }
   private createTray(): void {
@@ -25,12 +25,12 @@ export class DesktopController {
     ]))
     this.tray.on('double-click', () => this.showMain())
   }
-  private async hide(window: BrowserWindow): Promise<void> {
+  private async hide(window: BrowserWindow, reason: 'close' | 'blur' = 'close'): Promise<void> {
     if (this.quitting || this.closing.has(window.id))
       return
     this.closing.add(window.id)
     try {
-      if (await this.closeGuard() && !window.isDestroyed())
+      if (await this.closeGuard(window, reason) && !window.isDestroyed())
         window.hide()
     }
     finally {
@@ -75,7 +75,7 @@ export class DesktopController {
       this.capture = window
       this.attachCloseBehavior(window)
       window.on('blur', () => { if (!this.closing.has(window.id))
-        void this.hide(window); })
+        void this.hide(window, 'blur'); })
       if (this.rendererUrl)
         void window.loadURL(`${this.rendererUrl}?capture=1`)
       else

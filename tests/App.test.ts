@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { installDraftApi } from './draft-api-fixture'
 import { config, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App.vue'
@@ -53,7 +54,7 @@ function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = [], seedFilter
   const tags = [...seedTags]
   const filters = [...seedFilters]
   const lists = [{ ...list }]
-  return {
+  return installDraftApi({
     tasks: {
       list: vi.fn(async () => tasks.map((task) => ({ ...task }))),
       create: vi.fn(async (input) => {
@@ -141,7 +142,7 @@ function createApi(seed: Task[] = [makeTask()], seedTags: Tag[] = [], seedFilter
       onFocusQuickAdd: vi.fn(() => () => undefined),
       onOpenFlow: vi.fn(() => () => undefined),
     },
-  } as unknown as TodoApi
+  } as unknown as TodoApi)
 }
 
 describe('App critical interactions', () => {
@@ -248,6 +249,7 @@ describe('App critical interactions', () => {
     await flushPromises()
     await wrapper.find('.quick-add input').setValue('整理会议纪要')
     await wrapper.find('.quick-add input').trigger('keydown.enter')
+    await flushPromises()
     expect(api.tasks.create).toHaveBeenCalledWith(expect.objectContaining({ title: '整理会议纪要' }))
     expect(wrapper.text()).toContain('整理会议纪要')
   })
@@ -260,12 +262,15 @@ describe('App critical interactions', () => {
 
     const listButton = wrapper.findAll('.nav-item').find((button) => button.text().includes('工作'))
     await listButton!.trigger('click')
+    await flushPromises()
     await wrapper.find('.quick-add input').setValue('开学前任务')
     await wrapper.find('.quick-add input').trigger('keydown.enter')
+    await flushPromises()
     await flushPromises()
 
     const todayButton = wrapper.findAll('.nav-item').find((button) => button.text().includes('今天'))!
     await todayButton.trigger('click')
+    await flushPromises()
     expect(todayButton.find('em').text()).toBe('0')
     expect(wrapper.findAll('.task-row')).toHaveLength(0)
   })
@@ -277,6 +282,7 @@ describe('App critical interactions', () => {
     await flushPromises()
     await wrapper.find('.quick-add input').setValue('整理会议纪要 #会议')
     await wrapper.find('.quick-add input').trigger('keydown.enter')
+    await flushPromises()
     await flushPromises()
     expect(api.tags.create).toHaveBeenCalledWith(expect.objectContaining({ name: '会议' }))
     expect(api.tasks.create).toHaveBeenCalledWith(expect.objectContaining({ title: '整理会议纪要', tagIds: ['tag-1'] }))
@@ -315,13 +321,17 @@ describe('App critical interactions', () => {
     const wrapper = mount(App)
     await flushPromises()
     await wrapper.find('.task-row .task-main').trigger('click')
+    await flushPromises()
     expect(wrapper.find('.detail-drawer').exists()).toBe(true)
     await wrapper.find('.title-input').setValue('改名后的任务')
+    await wrapper.findAll('button').find(button => button.text().startsWith('最晚 '))!.trigger('click')
+    await wrapper.find('input[type="time"]').setValue('18:00')
     const reminderSelect = wrapper.findAll('[role="combobox"]').find(select => select.attributes('aria-label') === '任务提醒')!
     await reminderSelect.trigger('click')
     const hourOption = wrapper.findAll('[role="option"]').find(option => option.text().includes('提前 1 小时'))!
     await hourOption.trigger('click')
-    await wrapper.find('.save-button').trigger('click')
+    await wrapper.find('.title-input').trigger('blur')
+    await flushPromises()
     expect(api.tasks.update).toHaveBeenCalledWith('task-1', expect.objectContaining({ title: '改名后的任务', reminderMinutesBefore: 60 }))
   })
 
@@ -345,11 +355,14 @@ describe('App critical interactions', () => {
     const wrapper = mount(App)
     await flushPromises()
     await wrapper.find('.task-row .task-main').trigger('click')
-    await wrapper.find('.editor-tag-query').setValue('新标签')
-    await wrapper.find('.tag-create-button').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === '＋ 添加标签')!.trigger('click')
+    await wrapper.find('[aria-label="搜索或创建标签"]').setValue('新标签')
+    await wrapper.findAll('button').find(button => button.text().startsWith('创建并添加'))!.trigger('click')
     await flushPromises()
     expect(api.tags.create).toHaveBeenCalledWith(expect.objectContaining({ name: '新标签' }))
-    await wrapper.find('.save-button').trigger('click')
+    await wrapper.find('.title-input').trigger('blur')
+    await flushPromises()
     expect(api.tasks.update).toHaveBeenCalledWith('task-1', expect.objectContaining({ tagIds: ['tag-1'] }))
   })
 
@@ -360,6 +373,7 @@ describe('App critical interactions', () => {
     await flushPromises()
     const completedButton = wrapper.findAll('.nav-item').find((button) => button.text().includes('已完成'))
     await completedButton!.trigger('click')
+    await flushPromises()
     expect(wrapper.text()).toContain('完成项')
     expect(wrapper.text()).not.toContain('进行中')
   })
@@ -373,11 +387,13 @@ describe('App critical interactions', () => {
     await flushPromises()
 
     await wrapper.findAll('.saved-filter-row .nav-item')[0].trigger('click')
+    await flushPromises()
     expect(wrapper.text()).toContain('完成项')
     expect(wrapper.text()).not.toContain('进行中')
     expect(wrapper.find('.saved-filter-row .list-name').text()).toBe('仅看已完成')
 
     await wrapper.findAll('.saved-filter-row .nav-item')[1].trigger('click')
+    await flushPromises()
     expect(wrapper.text()).toContain('“仅看高重要程度”暂无匹配任务')
     expect(wrapper.text()).not.toContain('添加第一项任务')
   })
@@ -457,15 +473,16 @@ describe('App critical interactions', () => {
     expect(wrapper.text()).not.toContain('测试任务')
   })
 
-  it('places the subtask composer before task fields in the detail drawer', async () => {
+  it('places the subtask composer before notes in the detail drawer', async () => {
     const api = createApi()
     window.todoApi = api
     const wrapper = mount(App)
     await flushPromises()
     await wrapper.find('.task-row .task-main').trigger('click')
+    await flushPromises()
 
     const subtasks = wrapper.find('.subtasks').element
-    const firstField = wrapper.find('.editor-properties').element
+    const firstField = wrapper.find('.editor-notes').element
     expect(subtasks.compareDocumentPosition(firstField) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
@@ -475,8 +492,9 @@ describe('App critical interactions', () => {
     const wrapper = mount(App)
     await flushPromises()
     await wrapper.find('.task-row .task-main').trigger('click')
+    await flushPromises()
     expect(wrapper.findAll('.detail-card')).toHaveLength(0)
-    expect(wrapper.findAll('.editor-section h3').map(heading => heading.text())).toEqual(['备注', '子任务'])
+    expect(wrapper.findAll('.editor-section h3').map(heading => heading.text())).toEqual(['子任务', '备注'])
     await wrapper.get('[aria-label="展开任务详情"]').trigger('click')
     expect(wrapper.get('.task-editor').classes()).toContain('task-editor-expanded')
   })

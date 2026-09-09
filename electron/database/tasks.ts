@@ -12,8 +12,8 @@ export class TaskRepository {
     if (!validDate(input.dueDate) || !validDate(input.recurrence?.endDate))
     throw new Error('日期格式无效'); if (!validTime(input.dueTime))
     throw new Error('时间格式无效'); if (input.reminderMinutesBefore != null && !reminders.includes(input.reminderMinutesBefore))
-    throw new Error('提醒时间无效'); if (input.reminderMinutesBefore != null && !input.dueDate)
-    throw new Error('提醒任务必须设置日期'); }
+    throw new Error('提醒时间无效'); if (input.reminderMinutesBefore != null && (!input.dueDate || !input.dueTime))
+    throw new Error('到期提醒必须设置截止日期和时间'); }
   private validateTagIds(tagIds?: string[]): void { if (!tagIds?.length)
     return; const found = getDatabase().prepare(`SELECT id FROM tags WHERE id IN (${tagIds.map(() => '?').join(',')})`).all(...tagIds) as any[]; if (new Set(found.map((item) => item.id)).size !== new Set(tagIds).size)
     throw new Error('任务标签不存在'); }

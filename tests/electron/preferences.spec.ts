@@ -47,6 +47,7 @@ test('saves preferences through the real bridge, syncs capture, preserves drafts
     await expect(page.getByText('每天 21:30 · 应用或托盘运行时提醒')).toBeVisible()
     await expect(page.getByPlaceholder('哪件事值得肯定？')).toHaveValue('修改提醒也要保留这段草稿')
     await page.getByRole('button', { name: '标签管理', exact: true }).click()
+    await page.getByRole('button', { name: '保留草稿并继续' }).click()
     await page.getByPlaceholder('新标签名称').fill('桌面回归')
     await page.getByRole('button', { name: '创建标签' }).click()
     await expect(page.getByLabel('标签名称 桌面回归', { exact: true })).toHaveValue('桌面回归')

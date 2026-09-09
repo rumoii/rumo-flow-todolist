@@ -162,6 +162,7 @@ onBeforeUnmount(() => {
       class="select-field__trigger"
       role="combobox"
       :aria-label="ariaLabel"
+      :title="selectedOption?.label ?? placeholder"
       :aria-controls="listboxId"
       :aria-expanded="open"
       :aria-activedescendant="open ? activeOptionId : undefined"
@@ -184,7 +185,7 @@ onBeforeUnmount(() => {
           :aria-disabled="option.disabled || undefined"
           @mouseenter="!option.disabled && (activeIndex = index)"
           @mousedown.prevent
-          @click="selectOption(option)"
+          @click.prevent="selectOption(option)"
         >
           <span>{{ option.label }}</span>
           <span v-if="Object.is(option.value, modelValue)" class="select-field__check" aria-hidden="true">✓</span>
