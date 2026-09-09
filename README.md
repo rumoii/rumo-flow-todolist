@@ -30,7 +30,7 @@
 
 历史记录与交互说明见 [心流历史设计](docs/DESIGN-flow-history.md)，本地试装与验证范围见 [验证记录](docs/EVIDENCE-updates-batch.md)。
 
-开发中的界面精简：侧栏顶部“搜索”或 `Ctrl+K` 统一查找任务、视频和复盘，也可应用当前列表关键词筛选；心流历史保留日期与状态筛选。详情采用单页编辑并支持展开，任务菜单统一提供详情、置顶、重要程度和删除。这些工作区改动尚未发布，说明见 [搜索与详情交互](docs/DESIGN-workspace-polish.md)。
+v0.9.0-rc.3 的界面精简：侧栏顶部“搜索”或 `Ctrl+K` 统一查找任务、视频和复盘，也可应用当前列表关键词筛选；心流历史保留日期与状态筛选。详情采用单页编辑并支持展开，任务菜单统一提供详情、置顶、重要程度和删除，说明见 [搜索与详情交互](docs/DESIGN-workspace-polish.md)。
 
 ## 技术栈
 
@@ -62,9 +62,9 @@ pnpm package         # 构建 Windows 安装包
 
 ## 安装包
 
-Windows 安装包在 GitHub Releases 提供，不纳入源码仓库。最新正式版为 `v0.8.0`；当前源码版本为预览版 `v0.9.0-rc.2`，增加更新与关于、原列表批量操作、心流历史补录和时间轴阅读，不替换正式版 Latest。详见 [预览版说明](docs/releases/v0.9.0-rc.2.md) 和 [v0.8.0 发布说明](docs/releases/v0.8.0.md)。
+Windows 安装包在 GitHub Releases 提供，不纳入源码仓库。最新正式版为 `v0.8.0`；当前源码版本为预览版 `v0.9.0-rc.3`，包含更新与关于、原列表批量操作、心流历史补录与阅读，以及统一搜索和单页任务详情，不替换正式版 Latest。详见 [预览版说明](docs/releases/v0.9.0-rc.3.md) 和 [v0.8.0 发布说明](docs/releases/v0.8.0.md)。
 
-实际安装、覆盖升级和卸载仍待验收。安装包未签名，Windows SmartScreen 可能显示提示；请从项目 Release 页面下载并核对 SHA-256，安装前导出备份并完全退出旧程序。
+隔离 Windows 安装、覆盖升级和卸载仍待验收；本地开发包的手动覆盖记录不替代本版安装包验收。安装包未签名，Windows SmartScreen 可能显示提示；请从项目 Release 页面下载并核对 SHA-256，安装前导出备份并完全退出旧程序。
 
 ## 数据与备份
 
@@ -101,7 +101,7 @@ package.json
 
 桌面测试只使用任务创建的临时 `userData`，不会访问个人数据库。浏览器测试注入内存接口，不能替代真实桌面测试。安装包安装、卸载、系统通知点击和个人数据升级应另行验收。
 
-浏览器测试默认使用独立的 5173 端口，不复用已有服务；占用时可设置 `RUMO_E2E_PORT`，例如 PowerShell 中执行 `$env:RUMO_E2E_PORT='5186'`。功能验证见 [快捷安排验证记录](docs/EVIDENCE-task-arrangement.md) 和 [计划与行动验证记录](docs/EVIDENCE-planning.md)，当前发布门禁和未验收边界见 [预览版说明](docs/releases/v0.9.0-rc.2.md)。
+浏览器测试默认使用独立的 5173 端口，不复用已有服务；占用时可设置 `RUMO_E2E_PORT`，例如 PowerShell 中执行 `$env:RUMO_E2E_PORT='5186'`。功能验证见 [快捷安排验证记录](docs/EVIDENCE-task-arrangement.md) 和 [计划与行动验证记录](docs/EVIDENCE-planning.md)，当前发布门禁和未验收边界见 [预览版说明](docs/releases/v0.9.0-rc.3.md)。
 
 ### 更新与批量操作
 
