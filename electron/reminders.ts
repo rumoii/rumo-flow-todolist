@@ -1,5 +1,7 @@
-import { BrowserWindow, Notification } from 'electron'
+import { Notification } from 'electron'
 import { Repository } from './database/repository'
+
+const maximumTimerDelay = 2_147_000_000
 
 export class ReminderScheduler {
   private taskTimer?: NodeJS.Timeout
@@ -10,15 +12,19 @@ export class ReminderScheduler {
     this.disposeTimers()
     for (const item of this.repository.tasks.dueReminders()) this.notify(item.task.id, item.task.title)
     const next = this.repository.tasks.nextReminder()
-    if (next) {
-      const delay = Math.min(Math.max(next.remindAt.getTime() - Date.now(), 0), 2_147_000_000)
-      this.taskTimer = setTimeout(() => { this.notify(next.task.id, next.task.title); this.reschedule() }, delay)
-    }
+    if (next)
+      this.taskTimer = this.schedule(next.remindAt, () => this.notify(next.task.id, next.task.title))
     const flow = this.repository.flow.nextFlowReviewReminder()
-    if (flow) {
-      const delay = Math.min(Math.max(flow.remindAt.getTime() - Date.now(), 0), 2_147_000_000)
-      this.flowTimer = setTimeout(() => { this.notifyFlow(flow.date); this.reschedule() }, delay)
-    }
+    if (flow)
+      this.flowTimer = this.schedule(flow.remindAt, () => this.notifyFlow(flow.date))
+  }
+  private schedule(target: Date, notify: () => void): NodeJS.Timeout {
+    const remaining = Math.max(target.getTime() - Date.now(), 0)
+    return setTimeout(() => {
+      if (remaining <= maximumTimerDelay)
+        notify()
+      this.reschedule()
+    }, Math.min(remaining, maximumTimerDelay))
   }
   private notify(taskId: string, title: string): void {
     if (!Notification.isSupported()) return
@@ -26,7 +32,6 @@ export class ReminderScheduler {
     notification.on('click', () => this.showMainWindow(taskId))
     notification.show()
     this.repository.tasks.markReminderNotified(taskId)
-    for (const window of BrowserWindow.getAllWindows()) window.webContents.send('desktop:tasks-changed')
   }
   private notifyFlow(date: string): void {
     if (!Notification.isSupported() || !this.repository.flow.claimFlowReviewReminder(date)) return

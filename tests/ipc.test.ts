@@ -100,7 +100,7 @@ describe('settings IPC ordering', () => {
 
   it('applies imported shortcut settings before replacing persisted data', async () => {
     const events: string[] = []
-    const payload = { format: 'rumo-flow-backup', version: 5, exportedAt: '', taskLists: [], tasks: [], recurrenceRules: [], tags: [], taskTags: [], savedFilters: [], actionLinks: [], drafts: [], flowDays: [], videoReflections: [], settings: next } as const
+    const payload = { format: 'rumo-flow-backup', version: 6, exportedAt: '', taskLists: [], tasks: [], recurrenceRules: [], tags: [], taskTags: [], savedFilters: [], actionLinks: [], drafts: [], flowDays: [], videoReflections: [], settings: next } as const
     const repository = {
       getSettings: vi.fn(() => current),
       validateSettings: vi.fn(() => next),
@@ -113,6 +113,59 @@ describe('settings IPC ordering', () => {
 
     expect(events).toEqual(['shortcut', 'import'])
     expect(repository.importBackup).toHaveBeenCalledWith(expect.objectContaining({ settings: next }))
+  })
+
+  it('rolls back the shortcut and skips notifications when the import transaction fails', async () => {
+    const rollback = vi.fn()
+    const onTasksChanged = vi.fn()
+    const onSettingsChanged = vi.fn()
+    const onDataChanged = vi.fn()
+    const payload = { format: 'rumo-flow-backup', version: 6, exportedAt: '', taskLists: [], tasks: [], recurrenceRules: [], tags: [], taskTags: [], savedFilters: [], actionLinks: [], drafts: [], flowDays: [], videoReflections: [], settings: next } as const
+    const repository = {
+      getSettings: vi.fn(() => current),
+      validateSettings: vi.fn(() => next),
+      importBackup: vi.fn(() => { throw new Error('database write failed') }),
+    } as unknown as Repository
+    const barrier = { locked: false, run: vi.fn(async (_reason, action) => action()) }
+    registerIpcHandlers({ settings: repository, backup: repository } as never, { barrier: barrier as never, onSettingsChanging: () => rollback, onTasksChanged, onSettingsChanged, onDataChanged })
+
+    await expect(electronState.handlers.get('backup:import')!({}, payload)).rejects.toThrow('database write failed')
+
+    expect(rollback).toHaveBeenCalledOnce()
+    expect(onTasksChanged).not.toHaveBeenCalled()
+    expect(onSettingsChanged).not.toHaveBeenCalled()
+    expect(onDataChanged).not.toHaveBeenCalled()
+  })
+
+  it('returns a committed import after the barrier resumes and runs every post-import callback independently', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const events: string[] = []
+    const payload = { format: 'rumo-flow-backup', version: 6, exportedAt: '', taskLists: [], tasks: [], recurrenceRules: [], tags: [], taskTags: [], savedFilters: [], actionLinks: [], drafts: [], flowDays: [], videoReflections: [], settings: next } as const
+    const imported = { importedTasks: 0 }
+    const repository = {
+      getSettings: vi.fn().mockReturnValueOnce(current).mockReturnValue(next),
+      validateSettings: vi.fn(() => next),
+      importBackup: vi.fn(() => { events.push('import'); return imported }),
+    } as unknown as Repository
+    const barrier = { locked: false, run: vi.fn(async (_reason, action) => {
+      events.push('barrier')
+      const result = action()
+      events.push('resumed')
+      return result
+    }) }
+    registerIpcHandlers({ settings: repository, backup: repository } as never, {
+      barrier: barrier as never,
+      onSettingsChanging: () => { events.push('shortcut') },
+      onTasksChanged: () => { events.push('reminders'); throw new Error('scheduler failed') },
+      onSettingsChanged: () => { events.push('settings'); throw new Error('settings failed') },
+      onDataChanged: () => { events.push('data'); throw new Error('window failed') },
+    })
+
+    await expect(electronState.handlers.get('backup:import')!({}, payload)).resolves.toBe(imported)
+
+    expect(events).toEqual(['shortcut', 'barrier', 'import', 'resumed', 'reminders', 'settings', 'data'])
+    expect(log).toHaveBeenCalledTimes(3)
+    log.mockRestore()
   })
 
   it('returns committed settings when downstream notifications fail', () => {

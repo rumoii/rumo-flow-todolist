@@ -160,6 +160,8 @@ test('separates business management from settings and manages labels without del
   await expect(dialog).not.toContainText('标签管理')
   await page.getByRole('button', { name: '数据与备份', exact: true }).click()
   await expect(page.getByRole('button', { name: '导出备份' })).toBeVisible()
+  await expect(dialog).toContainText('v6 JSON 备份')
+  await expect(dialog).not.toContainText('v5 备份')
   await page.getByRole('button', { name: '快捷键', exact: true }).click()
   await expect(page.getByRole('button', { name: '快捷键帮助' })).toBeVisible()
   await page.getByRole('button', { name: '关闭设置' }).click()

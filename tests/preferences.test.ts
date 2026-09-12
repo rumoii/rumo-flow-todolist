@@ -55,6 +55,25 @@ describe('preference save boundary', () => {
     log.mockRestore()
   })
 
+  it('distinguishes a failed import transaction from a failed refresh after commit', async () => {
+    const notify = vi.fn()
+    const loadData = vi.fn().mockRejectedValueOnce(new Error('refresh failed'))
+    const importBackup = vi.fn().mockResolvedValueOnce({ importedTasks: 2 }).mockRejectedValueOnce(new Error('import failed'))
+    window.todoApi = { backup: { import: importBackup } } as unknown as TodoApi
+    let preferences!: ReturnType<typeof usePreferences>
+    const wrapper = mount(defineComponent({ setup() { preferences = usePreferences({ loadData, notify }); return () => null } }))
+
+    await preferences.importBackup()
+    expect(notify).toHaveBeenLastCalledWith('备份已恢复，但界面刷新失败，请重启应用查看最新数据')
+    notify.mockClear()
+    await preferences.importBackup()
+    expect(loadData).toHaveBeenCalledOnce()
+    expect(notify).toHaveBeenLastCalledWith('备份恢复失败，现有数据未改变')
+
+    wrapper.unmount()
+    delete window.todoApi
+  })
+
   it('uses the same title bar height with contrasting light and dark colors', () => {
     expect(titleBarAppearance('light')).toEqual({ color: '#ffffff', symbolColor: '#514b60', height: 36 })
     expect(titleBarAppearance('dark')).toEqual({ color: '#211f28', symbolColor: '#eeeaf5', height: 36 })

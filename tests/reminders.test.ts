@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const electronState = vi.hoisted(() => ({ supported: true, notifications: [] as Array<{ options: { title: string; body: string }; listeners: Record<string, () => void>; show: ReturnType<typeof vi.fn> }> }))
 
 vi.mock('electron', () => ({
-  BrowserWindow: { getAllWindows: () => [] },
   Notification: class {
     listeners: Record<string, () => void> = {}
     show = vi.fn()
@@ -62,5 +61,46 @@ describe('ReminderScheduler flow reminder lifecycle', () => {
     expect(repository.markReminderNotified).not.toHaveBeenCalled()
     expect(electronState.notifications).toHaveLength(0)
     scheduler.dispose()
+  })
+
+  it('uses an intermediate wake-up for reminders beyond the timer limit and notifies only at the real time', async () => {
+    const maximumDelay = 2_147_000_000
+    const task = { id: 'task-1', title: '远期提醒' }
+    const next = { task, remindAt: new Date(Date.now() + maximumDelay + 1000) }
+    const repository = {
+      purgeDeleted: vi.fn(),
+      dueReminders: vi.fn(() => []),
+      nextReminder: vi.fn().mockReturnValueOnce(next).mockReturnValueOnce(next).mockReturnValue(null),
+      nextFlowReviewReminder: vi.fn(() => null),
+      markReminderNotified: vi.fn(),
+    } as unknown as Repository
+    const scheduler = new ReminderScheduler({ tasks: repository, flow: repository } as never, vi.fn(), vi.fn())
+
+    scheduler.start()
+    await vi.advanceTimersByTimeAsync(maximumDelay)
+    expect(electronState.notifications).toHaveLength(0)
+    expect(repository.nextReminder).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(electronState.notifications).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(electronState.notifications).toHaveLength(1)
+    expect(repository.markReminderNotified).toHaveBeenCalledExactlyOnceWith('task-1')
+    scheduler.dispose()
+  })
+
+  it('disposes task and flow intermediate wake-up timers', () => {
+    const future = new Date(Date.now() + 2_147_000_001)
+    const repository = {
+      purgeDeleted: vi.fn(),
+      dueReminders: vi.fn(() => []),
+      nextReminder: vi.fn(() => ({ task: { id: 'task-1', title: '远期任务' }, remindAt: future })),
+      nextFlowReviewReminder: vi.fn(() => ({ date: '2026-09-30', remindAt: future })),
+    } as unknown as Repository
+    const scheduler = new ReminderScheduler({ tasks: repository, flow: repository } as never, vi.fn(), vi.fn())
+
+    scheduler.start()
+    expect(vi.getTimerCount()).toBe(2)
+    scheduler.dispose()
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

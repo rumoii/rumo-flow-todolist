@@ -35,8 +35,8 @@ const sections = [{ id: 'appearance', label: '外观', icon: '◐' }, { id: 'sho
             <UpdatePanel v-else-if="section === 'updates'" :state="updates.state.value" :status="updates.status.value" :message="updates.message.value" @action="updates.run" />
             <template v-else-if="section === 'data'">
               <h3>数据与备份</h3><p class="preferences-description">数据仅保存在当前设备。</p>
-              <div class="preference-card"><h4>导出数据备份</h4><p>将正式数据和未完成草稿保存为 v5 JSON 备份。</p><button class="secondary-button" @click="exportBackup">导出备份</button></div>
-              <div class="preference-card"><h4>从备份恢复</h4><p>替换正式数据与草稿前，自动保留当前快照。仅支持 v5 备份，包含计划、行动来源和回收站。</p><button class="secondary-button" @click="importBackup">选择文件</button></div>
+              <div class="preference-card"><h4>导出数据备份</h4><p>将正式数据和未完成草稿保存为 v6 JSON 备份。</p><button class="secondary-button" @click="exportBackup">导出备份</button></div>
+              <div class="preference-card"><h4>从备份恢复</h4><p>替换正式数据与草稿前，自动保留当前快照。仅支持 v6 备份，包含计划、行动来源和回收站。</p><button class="secondary-button" @click="importBackup">选择文件</button></div>
             </template>
           </div>
         </div>

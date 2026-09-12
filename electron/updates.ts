@@ -52,14 +52,17 @@ export class UpdateService {
   }
   setAutomatic(enabled: boolean) {
     clearTimeout(this.startupTimer)
+    this.startupTimer = undefined
     if (!enabled || this.startupChecked || !this.options.supported || this.disposed) return
     this.startupTimer = setTimeout(() => {
-      this.startupChecked = true
       void this.check()
     }, 10000)
   }
   async check() {
     if (!this.options.supported || this.disposed || this.checking || this.downloading || ['downloaded', 'installing'].includes(this.state.phase)) return
+    this.startupChecked = true
+    clearTimeout(this.startupTimer)
+    this.startupTimer = undefined
     this.checking = true
     this.result = undefined
     this.publish({ phase: 'checking', error: undefined, nextVersion: undefined, notes: undefined, progress: undefined })

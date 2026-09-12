@@ -64,6 +64,18 @@ it('requires acknowledgements from every window and locks only after flush', asy
   for (const window of state.windows) expect(window.webContents.send).toHaveBeenLastCalledWith('lifecycle:resume', { replaced: true })
 })
 
+it('resumes import windows without replacement after the database action fails', async () => {
+  state.windows = [{ isDestroyed: () => false, webContents: { id: 1, send: vi.fn((channel, payload) => {
+    if (channel === 'lifecycle:prepare') state.listeners.get('lifecycle:ack')!({ sender: { id: 1 } }, payload)
+  }) } }]
+  const barrier = new WindowBarrier()
+
+  await expect(barrier.run('import', () => { throw new Error('database write failed') })).rejects.toThrow('database write failed')
+
+  expect(state.windows[0].webContents.send).toHaveBeenLastCalledWith('lifecycle:resume', { replaced: false })
+  expect(barrier.running).toBe(false)
+})
+
 it('aborts on timeout, resumes editing and rejects overlapping operations', async () => {
   vi.useFakeTimers()
   const send = vi.fn()

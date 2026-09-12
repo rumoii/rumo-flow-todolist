@@ -29,23 +29,26 @@ export function registerBackup({ repository, options, handle, changed }: IpcCont
       payload = parseBackup(input)
     if (options.confirmImport && !await options.confirmImport())
       return null
-    const restore = () => {
-      const currentSettings = repository.settings.getSettings()
-      const nextSettings = repository.settings.validateSettings({ automaticUpdateChecks: defaults.automaticUpdateChecks, ...payload.settings } as Partial<AppSettings>)
-      const rollback = options.onSettingsChanging?.(nextSettings, currentSettings)
-      try {
-        const result = repository.backup.importBackup({ ...payload, settings: { ...nextSettings } })
-        options.onTasksChanged?.()
-        options.onSettingsChanged?.(repository.settings.getSettings())
-        return result
-      }
-      catch (error) {
-        rollback?.()
-        throw error
-      }
+    const currentSettings = repository.settings.getSettings()
+    const nextSettings = repository.settings.validateSettings({ automaticUpdateChecks: defaults.automaticUpdateChecks, ...payload.settings } as Partial<AppSettings>)
+    const rollback = options.onSettingsChanging?.(nextSettings, currentSettings)
+    const restore = () => repository.backup.importBackup({ ...payload, settings: { ...nextSettings } })
+    let result
+    try {
+      result = options.barrier ? await options.barrier.run('import', restore) : restore()
     }
-    const result = options.barrier ? await options.barrier.run('import', restore) : restore()
-    options.onDataChanged?.(['all'])
+    catch (error) {
+      try { rollback?.() }
+      catch (rollbackError) { console.error('备份导入失败，快捷键回滚失败', rollbackError) }
+      throw error
+    }
+    const synchronize = (label: string, action: () => void) => {
+      try { action() }
+      catch (error) { console.error(label, error) }
+    }
+    synchronize('备份已恢复，但提醒同步失败', () => options.onTasksChanged?.())
+    synchronize('备份已恢复，但设置同步失败', () => options.onSettingsChanged?.(repository.settings.getSettings()))
+    synchronize('备份已恢复，但数据通知失败', () => options.onDataChanged?.(['all']))
     return result
   })
 }

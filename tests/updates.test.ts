@@ -52,6 +52,17 @@ it('checks once on startup, supports disabling before the timer and does not pol
   expect(updater.checkForUpdates).toHaveBeenCalledOnce()
   service.dispose()
 })
+it('keeps manual checks available when automatic checks are off and cancels a pending startup check', async () => {
+  vi.useFakeTimers()
+  const { service, updater } = fixture()
+  service.setAutomatic(true)
+  service.setAutomatic(false)
+  await service.check()
+  service.setAutomatic(true)
+  await vi.advanceTimersByTimeAsync(11000)
+  expect(updater.checkForUpdates).toHaveBeenCalledOnce()
+  service.dispose()
+})
 it('handles unavailable versions, prerelease metadata, failures and check concurrency', async () => {
   const { service, updater } = fixture()
   updater.checkForUpdates.mockResolvedValueOnce({ isUpdateAvailable: false })

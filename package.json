@@ -2,6 +2,8 @@
   "name": "rumo-flow-todolist",
   "version": "0.9.0-rc.4",
   "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "engines": { "node": ">=22" },
   "type": "module",
   "description": "Rumo-Flow 极简个人计划与待办",
   "author": "Rumo",

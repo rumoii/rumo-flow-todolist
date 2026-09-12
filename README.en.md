@@ -30,7 +30,7 @@ A focused, offline-first desktop todo list. Rumo-Flow is built with Vue 3, TypeS
 
 ## Development
 
-Requirements: Node.js 22+ and pnpm 9+.
+Requirements: Node.js 22+ and pnpm 11.7.0.
 
 ```bash
 pnpm install
@@ -50,7 +50,7 @@ pnpm package         # Build the Windows installer
 
 ## Installer
 
-Windows installers are published as GitHub Releases rather than committed to the repository. The latest stable version remains `v0.8.0`; the current source version is `v0.9.0-rc.2`, a pre-release with update settings, in-list batch actions and a Flow history journal with backdated entries. Install this RC manually: the update checker only considers stable releases. A local development package has passed an authorized manual in-place installation and startup check; the real updater download/install/restart path and uninstallation remain unverified. Installers are unsigned, so Windows SmartScreen may display a warning. Download from the project Release page and verify the published SHA-256 value. See the [RC release notes](docs/releases/v0.9.0-rc.2.md) and [v0.8.0 release notes](docs/releases/v0.8.0.md) for data-format restrictions and rollback requirements.
+Windows installers are published as GitHub Releases rather than committed to the repository. The latest stable version remains `v0.8.0`; the current source version is the `v0.9.0-rc.4` preview, which adds task autosave, reliable input drafts and leave checks while refining task details, Flow and narrow-window behavior. It does not replace the stable Latest release. Isolated Windows installation, in-place upgrade and uninstallation still require acceptance; manually replacing a local development build does not substitute for installer acceptance. Installers are unsigned, so Windows SmartScreen may display a warning. Download from the project Release page and verify the published SHA-256 value. See the [preview release notes](docs/releases/v0.9.0-rc.4.md) and [v0.8.0 release notes](docs/releases/v0.8.0.md) for data-format restrictions and rollback requirements.
 
 ## Data and backups
 
@@ -58,11 +58,11 @@ Version 0.8.0 moves tag management to its own sidebar page, video quotas to Flow
 
 Application data is stored in Electron's user-data directory in a database named `rumo-daiban.sqlite`. Use “Settings → Data & Backups” inside the app to export a JSON backup; avoid copying a live SQLite file while the app is running. Before a restore, Rumo-Flow writes a snapshot to `backups/pre-import-*.json` so the previous state is retained.
 
-The current source imports and exports only `rumo-flow-backup` v5, including saved data, execution plans, trash, action provenance and unfinished drafts. Versions 1–4 are rejected without replacing existing data. A v5 snapshot is saved before each import.
+The current source imports and exports only `rumo-flow-backup` v6, including saved data, execution plans, trash, action provenance and unfinished drafts for new tasks, subtasks and video links. Versions 1–5 are rejected without replacing existing data. A v6 snapshot is saved before each import. Restore an older JSON backup in its original application version first, then upgrade that database.
 
 Task details, daily reviews, video edits and quick capture preserve drafts after roughly 500 ms without input. Only “draft preserved” confirms persistence. Explicit Save still commits formal data; drafts do not count as completed reviews. Navigation, window closing and normal exit wait for pending writes. Forced termination or power loss may lose input that has not reached disk.
 
-Migration 9 creates a consistent SQLite snapshot in `backups/pre-planning-*.sqlite` before upgrading an existing database. Existing task identifiers, deadlines and drafts remain; tasks start unplanned and task drafts become v2. Rollback requires closing all application processes and restoring the pre-upgrade snapshot. Do not open the upgraded database or import v5 with an older application.
+Migration 9 creates a consistent SQLite snapshot in `backups/pre-planning-*.sqlite` before upgrading an earlier database. Migration 10 snapshots an existing schema 9 database to `backups/pre-editors-*.sqlite` and expands draft kinds inside a transaction; earlier databases reuse the preceding migration snapshot. Rollback requires closing all application processes, restoring the pre-upgrade snapshot and using the matching application version. Do not let an older application write to an upgraded database or import a v6 backup.
 
 ### Planning and linked actions
 

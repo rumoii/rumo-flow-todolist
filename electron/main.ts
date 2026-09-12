@@ -12,6 +12,8 @@ import { loadWindowState, trackWindowState } from './window-state'
 import { titleBarAppearance } from './window-appearance'
 import updaterPackage from 'electron-updater'
 import { UpdateService } from './updates'
+import { synchronizeRuntimeSettings } from './runtime-settings'
+import { broadcastDataChanged } from './window-events'
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 const userDataOverride = app.commandLine.getSwitchValue('user-data-dir')
 if (userDataOverride) {
@@ -126,11 +128,9 @@ if (primaryInstance)
       installFailed: cancelInstallation,
     })
     updates.setAutomatic(appliedSettings.automaticUpdateChecks)
-    registerIpcHandlers(repository, { barrier, updates, confirmImport: async () => (await dialog.showMessageBox({ type: 'warning', message: '恢复备份会替换全部正式数据和草稿', detail: '恢复前会自动保留当前快照。仅支持 v5 备份，计划、行动来源、回收站和草稿将一起恢复。', buttons: ['取消', '恢复备份'], defaultId: 0, cancelId: 0 })).response === 1, onDataChanged: domains => { for (const window of BrowserWindow.getAllWindows())
-        if (!window.isDestroyed())
-          window.webContents.send('desktop:data-changed', domains); }, onTasksChanged: () => reminderScheduler?.reschedule(), onScheduleChanged: () => reminderScheduler?.reschedule(), openQuickCapture: () => desktop?.showCapture(), desktopStatus: () => ({ globalShortcut: desktop?.shortcut ?? repository.settings.getSettings().globalShortcut, globalShortcutRegistered: desktop?.shortcutRegistered ?? false }), onSettingsChanging: (next, current) => { if (next.globalShortcut === current.globalShortcut)
+    registerIpcHandlers(repository, { barrier, updates, confirmImport: async () => (await dialog.showMessageBox({ type: 'warning', message: '恢复备份会替换全部正式数据和草稿', detail: '恢复前会自动保留当前快照。仅支持 v6 备份，计划、行动来源、回收站和草稿将一起恢复。', buttons: ['取消', '恢复备份'], defaultId: 0, cancelId: 0 })).response === 1, onDataChanged: domains => broadcastDataChanged(BrowserWindow.getAllWindows(), domains), onTasksChanged: () => reminderScheduler?.reschedule(), onScheduleChanged: () => reminderScheduler?.reschedule(), openQuickCapture: () => desktop?.showCapture(), desktopStatus: () => ({ globalShortcut: desktop?.shortcut ?? repository.settings.getSettings().globalShortcut, globalShortcutRegistered: desktop?.shortcutRegistered ?? false }), onSettingsChanging: (next, current) => { if (next.globalShortcut === current.globalShortcut)
         return; if (!desktop?.registerShortcut(next.globalShortcut))
-        throw new Error('全局快捷键注册失败'); return () => { desktop?.registerShortcut(current.globalShortcut); }; }, onSettingsChanged: (settings) => { desktop?.notifySettingsChanged(settings); if (settings.reviewReminderEnabled !== appliedSettings.reviewReminderEnabled || settings.reviewReminderTime !== appliedSettings.reviewReminderTime) reminderScheduler?.reschedule(); appliedSettings = settings; } })
+        throw new Error('全局快捷键注册失败'); return () => { desktop?.registerShortcut(current.globalShortcut); }; }, onSettingsChanged: (settings) => { synchronizeRuntimeSettings(appliedSettings, settings, { notifySettingsChanged: value => desktop?.notifySettingsChanged(value), rescheduleReminders: () => reminderScheduler?.reschedule(), setAutomaticUpdates: enabled => updates?.setAutomatic(enabled) }); appliedSettings = settings; } })
     reminderScheduler.start()
     createWindow()
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0)

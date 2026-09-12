@@ -253,6 +253,7 @@ describe('Repository with an isolated SQLite database', () => {
     const due = repository.tasks.dueReminders(new Date('2026-08-28T10:00:00'))
     expect(due.map((item) => item.task.id)).toEqual([recent.id])
     repository.tasks.markReminderNotified(recent.id)
+    expect(repository.tasks.getTask(recent.id).updatedAt).toBe(recent.updatedAt)
     expect(repository.tasks.dueReminders(new Date('2026-08-28T10:00:00'))).toHaveLength(0)
   })
 

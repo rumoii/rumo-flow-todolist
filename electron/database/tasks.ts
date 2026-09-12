@@ -142,6 +142,6 @@ export class TaskRepository {
     task: Task
     remindAt: Date
   } | null { const current = new Date(); const items = (getDatabase().prepare("SELECT * FROM tasks WHERE status='active' AND deleted_at IS NULL AND due_date IS NOT NULL AND due_time IS NOT NULL AND reminder_minutes_before IS NOT NULL AND reminder_notified_at IS NULL").all() as any[]).map((row) => { const task = this.mapTask(row); const remindAt = new Date(`${task.dueDate}T${task.dueTime}:00`); remindAt.setMinutes(remindAt.getMinutes() - (task.reminderMinutesBefore ?? 0)); return { task, remindAt }; }).filter((item) => item.remindAt > current).sort((a, b) => a.remindAt.getTime() - b.remindAt.getTime()); return items[0] ?? null; }
-  markReminderNotified(id: string): void { getDatabase().prepare('UPDATE tasks SET reminder_notified_at=?,updated_at=? WHERE id=?').run(timestamp(), timestamp(), id); }
+  markReminderNotified(id: string): void { getDatabase().prepare('UPDATE tasks SET reminder_notified_at=? WHERE id=?').run(timestamp(), id); }
   purgeDeleted(olderThan = new Date(Date.now() - 30 * 86400000)): number { return purgeExpiredTasks(olderThan.toISOString()); }
 }

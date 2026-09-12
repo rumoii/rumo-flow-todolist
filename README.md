@@ -42,7 +42,7 @@ v0.9.0-rc.3 的界面精简：侧栏顶部“搜索”或 `Ctrl+K` 统一查找�
 
 ## 开发
 
-环境要求：Node.js 22+、pnpm 9+。
+环境要求：Node.js 22+、pnpm 11.7.0。
 
 ```bash
 pnpm install

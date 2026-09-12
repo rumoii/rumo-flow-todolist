@@ -29,17 +29,22 @@ export function usePreferences({ loadData, notify }: Dependencies) {
   async function importBackup() { if (!hasApi()) {
     notify('请在桌面应用中恢复备份')
     return
-  } try {
-    const result = await window.todoApi.backup.import()
-    if (result) {
-      settingsOpen.value = false
+  }
+    let result
+    try { result = await window.todoApi.backup.import() }
+    catch {
+      notify('备份恢复失败，现有数据未改变')
+      return
+    }
+    if (!result)
+      return
+    settingsOpen.value = false
+    try {
       await loadData()
       notify(`已恢复 ${result.importedTasks} 个任务`)
     }
+    catch { notify('备份已恢复，但界面刷新失败，请重启应用查看最新数据') }
   }
-  catch {
-    notify('备份恢复失败，现有数据未改变')
-  } }
   function applySettings() {
     document.documentElement.dataset.theme = settings.value.theme
     document.documentElement.dataset.density = settings.value.density
