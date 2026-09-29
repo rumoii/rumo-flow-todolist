@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { useWorkspaceContext } from './context'
 import SelectField from '../../components/SelectField.vue'
-const { workspaceSearch, completedTodayCount, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon } = useWorkspaceContext()
+import SavedFilterMenu from './SavedFilterMenu.vue'
+import FilterEditDialog from './FilterEditDialog.vue'
+defineOptions({ inheritAttrs: false })
+const { workspaceSearch, completedTodayCount, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, toggleFilterComposer, newFilterName, newFilterKeyword, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, rumoFlowIcon } = useWorkspaceContext()
 </script>
 
 <template>
-<aside class="sidebar">
+<aside v-bind="$attrs" class="sidebar">
       <div class="brand">
 <img class="brand-mark" :src="rumoFlowIcon" alt="Rumo-Flow" />
 <span class="brand-copy">
@@ -42,12 +45,16 @@ const { workspaceSearch, completedTodayCount, settingsOpen, tasks, tags, savedFi
 <button :class="['nav-item', { active: activeView === 'tags' }]" @click="activeView = 'tags'"><span class="nav-icon" aria-hidden="true">#</span> 标签管理</button>
 </nav>
       <div class="sidebar-section saved-filter-section">
-        <div class="section-title">保存的筛选 <button class="icon-button" aria-label="新建筛选" @click.stop="filterComposerOpen = !filterComposerOpen">＋</button>
+        <div class="section-title">保存的筛选 <button class="icon-button" :aria-label="filterComposerOpen ? '收起新建筛选' : '新建筛选'" :aria-expanded="filterComposerOpen" aria-controls="filter-composer-form" @click.stop="toggleFilterComposer">{{ filterComposerOpen ? '−' : '＋' }}</button>
 </div>
         <Transition name="filter-composer">
           <div v-if="filterComposerOpen" class="filter-composer-motion">
-            <div class="list-composer filter-composer-form" @click.stop>
+            <div id="filter-composer-form" class="list-composer filter-composer-form" @click.stop>
               <input v-model="newFilterName" class="filter-name-input" autofocus placeholder="筛选名称" @keydown.enter="createFilter" />
+              <div class="filter-field-row">
+<span>关键词</span>
+<input v-model="newFilterKeyword" class="filter-keyword-input" placeholder="关键词" aria-label="筛选关键词" />
+</div>
               <div class="filter-field-row">
 <span>状态</span>
 <SelectField v-model="newFilterStatus" aria-label="筛选状态" :options="[{ value: 'active', label: '进行中' }, { value: 'completed', label: '已完成' }, { value: 'all', label: '全部' }]" />
@@ -77,14 +84,14 @@ const { workspaceSearch, completedTodayCount, settingsOpen, tasks, tags, savedFi
 <span class="nav-icon" aria-hidden="true">⌕</span>
 <span class="list-name">{{ filter.name }}</span>
 </button>
-          <button class="inline-remove" :aria-label="`删除筛选 ${filter.name}`" @click.stop="removeFilter(filter)">×</button>
+          <SavedFilterMenu :filter="filter" />
         </div>
       </div>
       <div class="sidebar-section">
-        <div class="section-title">我的清单 <button class="icon-button" aria-label="新建清单" @click.stop="listComposerOpen = !listComposerOpen">＋</button>
+        <div class="section-title">我的清单 <button class="icon-button" :aria-label="listComposerOpen ? '收起新建清单' : '新建清单'" :aria-expanded="listComposerOpen" aria-controls="list-composer-form" @click.stop="listComposerOpen = !listComposerOpen">{{ listComposerOpen ? '−' : '＋' }}</button>
 </div>
         <Transition name="composer">
-<div v-if="listComposerOpen" class="list-composer" @click.stop>
+<div v-if="listComposerOpen" id="list-composer-form" class="list-composer" @click.stop>
 <input v-model="newListName" autofocus placeholder="清单名称" @keydown.enter="addList" @keydown.esc="listComposerOpen = false" />
 <button @click="addList">✓</button>
 </div>
@@ -142,4 +149,5 @@ const { workspaceSearch, completedTodayCount, settingsOpen, tasks, tags, savedFi
 <span class="nav-icon" aria-hidden="true">⚙</span> 设置</button>
 </div>
     </aside>
+  <FilterEditDialog />
 </template>

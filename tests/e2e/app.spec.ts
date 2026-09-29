@@ -10,6 +10,7 @@ test.beforeEach(async ({ page }) => {
     const timestamp = now.toISOString()
     const lists = [{ id: 'list-work', name: '工作', color: '#856AF9', sortOrder: 0, isPinned: false, createdAt: timestamp, updatedAt: timestamp }]
     const tags: Array<{ id: string; name: string; color: string | null; createdAt: string; updatedAt: string }> = []
+    const savedFilters: Array<{ id: string; name: string; criteria: Record<string, unknown>; sortOrder: number; createdAt: string; updatedAt: string }> = []
     const tasks = [{ plan: { kind: 'day', start: today }, focusDate: null, deletionBatch: null, id: 'seed-task', title: '验收初始任务', listId: 'list-work', dueDate: today, dueTime: null, reminderMinutesBefore: null, priority: 'high', notes: '浏览器验收', status: 'active', sortOrder: 0, isPinned: false, parentTaskId: null, recurrenceRuleId: null, deletedAt: null, tags: [], createdAt: timestamp, updatedAt: timestamp, completedAt: null }]
     const flowReview = { date: today, videoLimit: 3, didWell: '', didNotWell: '', reflection: '', inputType: 'none', inputVideoId: null, inputText: '', outputText: '', tomorrowExpectation: '', savedAt: null as string | null, createdAt: timestamp, updatedAt: timestamp }
     const flowVideos: Array<{ id: string; date: string; title: string; sourceUrl: string; sourcePlatform: string; author: string; thought: string; createdAt: string; updatedAt: string }> = []
@@ -72,7 +73,24 @@ test.beforeEach(async ({ page }) => {
             tasks.forEach((task) => { task.tags = task.tags.filter((tag) => tag.id !== id) })
           },
         },
-        filters: { list: async () => [], create: async (input: Record<string, unknown>) => ({ id: crypto.randomUUID(), sortOrder: 0, createdAt: timestamp, updatedAt: timestamp, ...input }), update: async () => ({}), remove: async () => undefined },
+        filters: {
+          list: async () => savedFilters.map((filter) => ({ ...filter, criteria: { ...filter.criteria } })),
+          create: async (input: Record<string, unknown>) => {
+            const filter = { id: crypto.randomUUID(), sortOrder: savedFilters.length, createdAt: timestamp, updatedAt: timestamp, ...input } as { id: string; name: string; criteria: Record<string, unknown>; sortOrder: number; createdAt: string; updatedAt: string }
+            savedFilters.push(filter)
+            return { ...filter, criteria: { ...filter.criteria } }
+          },
+          update: async (id: string, input: Record<string, unknown>) => {
+            const filter = savedFilters.find((item) => item.id === id)
+            if (!filter) throw new Error('missing filter')
+            Object.assign(filter, input, { updatedAt: new Date().toISOString() })
+            return { ...filter, criteria: { ...filter.criteria } }
+          },
+          remove: async (id: string) => {
+            const index = savedFilters.findIndex((item) => item.id === id)
+            if (index >= 0) savedFilters.splice(index, 1)
+          },
+        },
         flow: {
           actionLinks: async () => [],
           taskFacts: async () => ({ completed: [], pending: [] }),
@@ -384,7 +402,7 @@ test('uses unified motion tokens and honors reduced-motion preferences', async (
 test('shows a readable saved-filter form and restrained select motion', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '新建筛选' }).click()
-  await expect(page.locator('.filter-field-row>span')).toHaveText(['状态', '清单', '重要程度', '标签', '日期'])
+  await expect(page.locator('.filter-field-row>span')).toHaveText(['关键词', '状态', '清单', '重要程度', '标签', '日期'])
   await expect(page.getByRole('combobox', { name: '筛选状态' })).toContainText('进行中')
   await expect(page.getByRole('combobox', { name: '筛选清单' })).toContainText('任意清单')
   await expect(page.getByRole('combobox', { name: '筛选重要程度' })).toContainText('任意重要程度')
@@ -437,6 +455,57 @@ test('keeps saved-filter names horizontal and applies completed status before th
   await page.getByRole('button', { name: '设置' }).click()
   await expect(page.locator('.settings-dialog')).toBeVisible()
   expect(await page.locator('.settings-dialog').evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true)
+})
+
+test('manages a saved filter through the row menu with keyboard support', async ({ page }) => {
+  // This scenario only proves browser UI behavior against the in-page mock API, not real IPC or SQLite persistence.
+  await page.goto('/')
+
+  const toggle = page.getByRole('button', { name: '新建筛选' })
+  await expect(toggle).toContainText('＋')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await toggle.click()
+  await expect(page.getByRole('button', { name: '收起新建筛选' })).toContainText('−')
+  await expect(page.getByRole('button', { name: '收起新建筛选' })).toHaveAttribute('aria-expanded', 'true')
+  await page.getByPlaceholder('筛选名称').fill('本周重点')
+  await page.getByPlaceholder('关键词').fill('验收')
+  await page.locator('.filter-submit').click()
+  await expect(page.getByRole('heading', { name: '本周重点' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '新建筛选' })).toContainText('＋')
+
+  await page.getByRole('button', { name: '筛选操作' }).click()
+  const menu = page.getByRole('menu', { name: /^筛选操作/ })
+  await expect(menu.getByRole('menuitem')).toHaveText(['编辑筛选', '删除筛选'])
+  await expect(menu.getByRole('menuitem', { name: '编辑筛选' })).toBeFocused()
+  await menu.getByRole('menuitem', { name: '编辑筛选' }).press('ArrowDown')
+  await expect(menu.getByRole('menuitem', { name: '删除筛选' })).toBeFocused()
+  await menu.getByRole('menuitem', { name: '删除筛选' }).press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '筛选操作' })).toBeFocused()
+
+  await page.getByRole('button', { name: '筛选操作' }).click()
+  await page.getByRole('menuitem', { name: '编辑筛选' }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑筛选' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByPlaceholder('筛选名称')).toHaveValue('本周重点')
+  await expect(dialog.getByPlaceholder('关键词')).toHaveValue('验收')
+  await expect(dialog.getByPlaceholder('筛选名称')).toBeFocused()
+  await dialog.getByPlaceholder('筛选名称').fill('本周重点 A')
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: '本周重点 A' })).toBeVisible()
+  await expect(page.locator('.saved-filter-row .list-name')).toHaveText('本周重点 A')
+  await expect(page.getByRole('button', { name: '筛选操作' })).toBeFocused()
+
+  await expect(page.locator('.sidebar')).toBeVisible()
+  const layout = await page.evaluate(() => {
+    const sidebar = document.querySelector('.sidebar')!.getBoundingClientRect()
+    const row = document.querySelector('.saved-filter-row')!.getBoundingClientRect()
+    return { sidebarLeft: sidebar.left, sidebarRight: sidebar.right, rowLeft: row.left, rowRight: row.right, scrollWidth: document.body.scrollWidth, viewport: innerWidth }
+  })
+  expect(layout.rowLeft).toBeGreaterThanOrEqual(layout.sidebarLeft)
+  expect(layout.rowRight).toBeLessThanOrEqual(layout.sidebarRight + 1)
+  expect(layout.scrollWidth).toBeLessThanOrEqual(layout.viewport)
 })
 
 test('renders the branded quick capture panel without overflow', async ({ page }) => {

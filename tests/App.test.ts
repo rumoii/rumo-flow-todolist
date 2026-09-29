@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { installDraftApi } from './draft-api-fixture'
-import { config, flushPromises, mount } from '@vue/test-utils'
+import { config, enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App.vue'
 import type { SavedFilter, Tag, Task, TaskList, TodoApi } from '../src/shared/contracts'
+
+enableAutoUnmount(afterEach)
 
 const makeTask = (overrides: Partial<Task> = {}): Task => ({
   plan: { kind: 'day', start: new Date().toLocaleDateString('sv-SE') },
@@ -289,19 +291,119 @@ describe('App critical interactions', () => {
     expect(wrapper.text()).toContain('#会议')
   })
 
-  it('toggles the saved-filter composer inside its motion wrapper', async () => {
+  it('toggles the saved-filter composer button state and keeps the unsubmitted draft', async () => {
     window.todoApi = createApi()
     const wrapper = mount(App)
     await flushPromises()
 
     expect(wrapper.find('.filter-composer-motion').exists()).toBe(false)
-    await wrapper.get('[aria-label="新建筛选"]').trigger('click')
+    const closedButton = wrapper.get('[aria-label="新建筛选"]')
+    expect(closedButton.text()).toBe('＋')
+    expect(closedButton.attributes('aria-expanded')).toBe('false')
+    expect(closedButton.attributes('aria-controls')).toBe('filter-composer-form')
+
+    await closedButton.trigger('click')
     expect(wrapper.find('.filter-composer-motion').exists()).toBe(true)
+    const openButton = wrapper.get('[aria-label="收起新建筛选"]')
+    expect(openButton.text()).toBe('−')
+    expect(openButton.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('#filter-composer-form').exists()).toBe(true)
     expect(wrapper.findAll('.filter-composer-motion [role="combobox"]')).toHaveLength(5)
-    expect(wrapper.findAll('.filter-field-row>span').map(label => label.text())).toEqual(['状态', '清单', '重要程度', '标签', '日期'])
-    expect(wrapper.findAll('.filter-field-row .select-field__value').map(value => value.text())).toEqual(['进行中', '任意清单', '任意重要程度', '任意标签', '任意日期'])
-    await wrapper.get('[aria-label="新建筛选"]').trigger('click')
+    expect(wrapper.findAll('.filter-composer-motion .filter-field-row>span').map(label => label.text())).toEqual(['关键词', '状态', '清单', '重要程度', '标签', '日期'])
+    expect(wrapper.findAll('.filter-composer-motion .filter-field-row .select-field__value').map(value => value.text())).toEqual(['进行中', '任意清单', '任意重要程度', '任意标签', '任意日期'])
+
+    await wrapper.get('[aria-label="筛选关键词"]').setValue('草稿关键词')
+    await wrapper.get('.filter-name-input').setValue('草稿名称')
+    await wrapper.get('[aria-label="收起新建筛选"]').trigger('click')
     expect(wrapper.find('.filter-composer-motion').exists()).toBe(false)
+    expect(wrapper.get('[aria-label="新建筛选"]').text()).toBe('＋')
+
+    await wrapper.get('[aria-label="新建筛选"]').trigger('click')
+    expect(wrapper.get('.filter-name-input').element.value).toBe('草稿名称')
+    expect(wrapper.get('[aria-label="筛选关键词"]').element.value).toBe('草稿关键词')
+  })
+
+  it('prefills the new filter keyword from the page search only on the first expand', async () => {
+    window.todoApi = createApi()
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('.workspace-search-trigger').trigger('click')
+    await wrapper.findAll('.search-scopes button')[1].trigger('click')
+    await wrapper.get('[aria-label="搜索关键词"]').setValue('页面词')
+    await wrapper.get('.unified-search-form').trigger('submit')
+    await flushPromises()
+
+    await wrapper.get('[aria-label="新建筛选"]').trigger('click')
+    expect(wrapper.get('[aria-label="筛选关键词"]').element.value).toBe('页面词')
+    await wrapper.get('[aria-label="筛选关键词"]').setValue('表单草稿')
+    await wrapper.get('[aria-label="收起新建筛选"]').trigger('click')
+
+    await wrapper.get('.workspace-search-trigger').trigger('click')
+    await wrapper.findAll('.search-scopes button')[1].trigger('click')
+    await wrapper.get('[aria-label="搜索关键词"]').setValue('另一个页面词')
+    await wrapper.get('.unified-search-form').trigger('submit')
+    await flushPromises()
+
+    await wrapper.get('[aria-label="新建筛选"]').trigger('click')
+    expect(wrapper.get('[aria-label="筛选关键词"]').element.value).toBe('表单草稿')
+    wrapper.unmount()
+  })
+
+  it('creates a filter from the keyword input instead of the page search and resets the form', async () => {
+    const api = createApi()
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+
+    await wrapper.get('.workspace-search-trigger').trigger('click')
+    await wrapper.findAll('.search-scopes button')[1].trigger('click')
+    await wrapper.get('[aria-label="搜索关键词"]').setValue('页面词')
+    await wrapper.get('.unified-search-form').trigger('submit')
+    await flushPromises()
+
+    await wrapper.get('[aria-label="新建筛选"]').trigger('click')
+    await wrapper.get('.filter-name-input').setValue('我的筛选')
+    await wrapper.get('[aria-label="筛选关键词"]').setValue('表单词')
+    await wrapper.get('.filter-submit').trigger('click')
+    await flushPromises()
+
+    expect(api.filters.create).toHaveBeenCalledWith(expect.objectContaining({ name: '我的筛选', criteria: expect.objectContaining({ search: '表单词' }) }))
+    expect((api.filters.create as ReturnType<typeof vi.fn>).mock.calls[0][0].criteria.search).toBe('表单词')
+    expect(wrapper.find('.filter-composer-motion').exists()).toBe(false)
+    expect(wrapper.get('[aria-label="新建筛选"]').text()).toBe('＋')
+    await wrapper.get('[aria-label="新建筛选"]').trigger('click')
+    expect(wrapper.get('.filter-name-input').element.value).toBe('')
+    expect(wrapper.get('[aria-label="筛选关键词"]').element.value).toBe('')
+  })
+
+  it('toggles the list composer button state and keeps its draft until creation', async () => {
+    const api = createApi()
+    window.todoApi = api
+    const wrapper = mount(App)
+    await flushPromises()
+
+    const closedButton = wrapper.get('[aria-label="新建清单"]')
+    expect(closedButton.text()).toBe('＋')
+    expect(closedButton.attributes('aria-expanded')).toBe('false')
+    expect(closedButton.attributes('aria-controls')).toBe('list-composer-form')
+    await closedButton.trigger('click')
+    const openButton = wrapper.get('[aria-label="收起新建清单"]')
+    expect(openButton.text()).toBe('−')
+    expect(openButton.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('#list-composer-form').exists()).toBe(true)
+
+    await wrapper.get('#list-composer-form input').setValue('读书清单')
+    await wrapper.get('[aria-label="收起新建清单"]').trigger('click')
+    expect(wrapper.get('[aria-label="新建清单"]').text()).toBe('＋')
+    await wrapper.get('[aria-label="新建清单"]').trigger('click')
+    expect(wrapper.get('#list-composer-form input').element.value).toBe('读书清单')
+
+    await wrapper.get('#list-composer-form button').trigger('click')
+    await flushPromises()
+    expect(api.lists.create).toHaveBeenCalledWith(expect.objectContaining({ name: '读书清单' }))
+    expect(wrapper.find('#list-composer-form').exists()).toBe(false)
+    expect(wrapper.get('[aria-label="新建清单"]').text()).toBe('＋')
   })
 
   it('toggles completion through the checkbox and reports success', async () => {
@@ -497,5 +599,367 @@ describe('App critical interactions', () => {
     expect(wrapper.findAll('.editor-section h3').map(heading => heading.text())).toEqual(['子任务', '备注'])
     await wrapper.get('[aria-label="展开任务详情"]').trigger('click')
     expect(wrapper.get('.task-editor').classes()).toContain('task-editor-expanded')
+  })
+
+  const savedFilter = (overrides: Partial<SavedFilter> = {}): SavedFilter => ({
+    id: 'filter-1',
+    name: '我的筛选',
+    criteria: { status: 'active', listId: null, priorities: ['high'], tagIds: ['tag-1'], due: 'today', search: '关键词' },
+    sortOrder: 0,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  })
+
+  it('opens the saved-filter row menu and deletes only through its command', async () => {
+    const api = createApi([makeTask()], [makeTag()], [savedFilter()])
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    const row = wrapper.get('.saved-filter-row')
+    expect(row.find('.list-name').text()).toBe('我的筛选')
+    await row.get('[aria-label="筛选操作"]').trigger('click')
+    const menu = wrapper.get('.filter-menu-root .popup-menu')
+    expect(menu.findAll('[role="menuitem"]').map(item => item.text())).toEqual(['编辑筛选', '删除筛选'])
+    expect(menu.attributes('role')).toBe('menu')
+
+    await row.get('.nav-item').trigger('click')
+    await flushPromises()
+    expect(api.filters.remove).not.toHaveBeenCalled()
+    expect(row.get('.nav-item').classes()).toContain('active')
+
+    await row.get('[aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '删除筛选')!.trigger('click')
+    await flushPromises()
+    expect(api.filters.remove).toHaveBeenCalledWith('filter-1')
+    expect(wrapper.find('.saved-filter-row').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('restores menu focus on escape and prefills every edit field accurately', async () => {
+    const tag = makeTag()
+    const api = createApi([makeTask()], [tag], [savedFilter()])
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    const trigger = wrapper.get('.saved-filter-row [aria-label="筛选操作"]')
+    await trigger.trigger('click')
+    await wrapper.get('.filter-menu-root [role="menuitem"]').trigger('keydown', { key: 'Escape' })
+    await flushPromises()
+    expect(wrapper.find('.filter-menu-root .popup-menu').exists()).toBe(false)
+    expect(document.activeElement).toBe(trigger.element)
+
+    await trigger.trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.get('.filter-edit-dialog')
+    expect(dialog.find('h2').text()).toBe('编辑筛选')
+    expect((dialog.get('input').element as HTMLInputElement).value).toBe('我的筛选')
+    expect(document.activeElement).toBe(dialog.get('input').element)
+    expect((dialog.get('[placeholder="关键词"]').element as HTMLInputElement).value).toBe('关键词')
+    const rows = dialog.findAll('.filter-field-row')
+    expect(rows.map(row => row.find('span').text())).toEqual(['名称', '关键词', '状态', '清单', '重要程度', '标签', '日期'])
+    expect(rows[2].find('.select-field__value').text()).toBe('进行中')
+    expect(rows[3].find('.select-field__value').text()).toBe('收集箱')
+    expect(rows[6].find('.select-field__value').text()).toBe('今天')
+    const priorities = rows[4].findAll('label').map(label => ({ text: label.text(), checked: (label.find('input').element as HTMLInputElement).checked }))
+    expect(priorities).toEqual([{ text: '高', checked: true }, { text: '中', checked: false }, { text: '低', checked: false }, { text: '未设置', checked: false }])
+    const tagBoxes = rows[5].findAll('label').map(label => ({ text: label.text(), checked: (label.find('input').element as HTMLInputElement).checked }))
+    expect(tagBoxes).toEqual([{ text: '#工作', checked: true }])
+
+    await dialog.get('.cancel-button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(false)
+    expect(document.activeElement).toBe(trigger.element)
+    expect(api.filters.update).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('edits multi-select criteria and refreshes the active filter title and results', async () => {
+    const tag = makeTag()
+    const other = makeTag({ id: 'tag-2', name: '复盘' })
+    const filter = savedFilter({ criteria: { status: 'active', listId: null, priorities: ['high'], tagIds: ['tag-1'], due: 'any', search: '' } })
+    const api = createApi([makeTask({ id: 'focus', title: '高优任务', priority: 'high', tags: [tag] }), makeTask({ id: 'low', title: '低优任务', priority: 'low', tags: [other] })], [tag, other], [filter])
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.findAll('.saved-filter-row .nav-item')[0].trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.page-header h1').text()).toBe('我的筛选')
+    expect(wrapper.text()).toContain('高优任务')
+    expect(wrapper.text()).not.toContain('低优任务')
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.get('.filter-edit-dialog')
+    await dialog.get('[placeholder="筛选名称"]').setValue('新筛选')
+    const rows = dialog.findAll('.filter-field-row')
+    await rows[4].findAll('label').find(label => label.text() === '低')!.find('input').setChecked(true)
+    await rows[5].findAll('label').find(label => label.text() === '#复盘')!.find('input').setChecked(true)
+    await dialog.get('.save-button').trigger('click')
+    await flushPromises()
+
+    expect(api.filters.update).toHaveBeenCalledTimes(1)
+    expect(api.filters.update).toHaveBeenCalledWith('filter-1', { name: '新筛选', criteria: { status: 'active', listId: null, priorities: ['high', 'low'], tagIds: ['tag-1', 'tag-2'], due: 'any', search: '' } })
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(false)
+    expect(wrapper.find('.saved-filter-row .list-name').text()).toBe('新筛选')
+    expect(wrapper.get('.page-header h1').text()).toBe('新筛选')
+    expect(wrapper.text()).toContain('高优任务')
+    expect(wrapper.text()).toContain('低优任务')
+    wrapper.unmount()
+  })
+
+  it('keeps stale list and tag references while editing other fields and allows removing them', async () => {
+    const filter = savedFilter({ criteria: { status: 'active', listId: 'list-gone', tagIds: ['tag-gone'], due: 'any' } })
+    const api = createApi([makeTask()], [makeTag({ id: 'tag-1', name: '工作' })], [filter])
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.get('.filter-edit-dialog')
+    const rows = dialog.findAll('.filter-field-row')
+    expect(rows[3].find('.select-field__value').text()).toBe('已不可用')
+    const staleTag = rows[5].findAll('label').find(label => label.text() === '已不可用')!
+    expect((staleTag.find('input').element as HTMLInputElement).checked).toBe(true)
+
+    await rows[2].find('.select-field__trigger').trigger('click')
+    await wrapper.findAll('[role="option"]').find(option => option.text().includes('全部'))!.trigger('click')
+    await dialog.get('.save-button').trigger('click')
+    await flushPromises()
+    const [id, input] = (api.filters.update as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(id).toBe('filter-1')
+    expect(input.name).toBeUndefined()
+    expect(input.criteria).toEqual({ status: 'all', listId: 'list-gone', tagIds: ['tag-gone'], due: 'any' })
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    const reopened = wrapper.get('.filter-edit-dialog')
+    const reopenedRows = reopened.findAll('.filter-field-row')
+    await reopenedRows[5].findAll('label').find(label => label.text() === '已不可用')!.find('input').setChecked(false)
+    await reopenedRows[3].find('.select-field__trigger').trigger('click')
+    await wrapper.findAll('[role="option"]').find(option => option.text().includes('任意清单'))!.trigger('click')
+    await reopened.get('.save-button').trigger('click')
+    await flushPromises()
+    const second = (api.filters.update as ReturnType<typeof vi.fn>).mock.calls[1][1]
+    expect(second.criteria.listId).toBeUndefined()
+    expect(second.criteria.tagIds).toBeUndefined()
+    expect(second.criteria.status).toBe('all')
+    wrapper.unmount()
+  })
+
+  it('blocks empty names and composition enter, and skips saves without real changes', async () => {
+    const api = createApi([makeTask()], [], [savedFilter()])
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.get('.filter-edit-dialog')
+    const nameInput = dialog.get('[placeholder="筛选名称"]')
+    await nameInput.setValue('   ')
+    await nameInput.trigger('keydown.enter')
+    expect(api.filters.update).not.toHaveBeenCalled()
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(true)
+    expect(wrapper.get('.filter-edit-error').text()).toContain('筛选名称不能为空')
+
+    await nameInput.setValue('我的筛选')
+    await nameInput.trigger('compositionstart')
+    await nameInput.trigger('keydown.enter')
+    expect(api.filters.update).not.toHaveBeenCalled()
+    await nameInput.trigger('compositionend')
+    await nameInput.trigger('keydown.enter')
+    await flushPromises()
+    expect(api.filters.update).not.toHaveBeenCalled()
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('sends only the name for renames and keeps the draft with retry after a failure', async () => {
+    const api = createApi([makeTask()], [], [savedFilter()])
+    let rejectUpdate: ((reason?: unknown) => void) | undefined
+    api.filters.update = vi.fn(() => new Promise((resolve, reject) => { rejectUpdate = reject; resolve(savedFilter({ name: '已改名' })) }))
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.get('.filter-edit-dialog')
+    await dialog.get('[placeholder="筛选名称"]').setValue('已改名')
+    await dialog.get('.save-button').trigger('click')
+    await flushPromises()
+    expect(api.filters.update).toHaveBeenCalledWith('filter-1', { name: '已改名' })
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(false)
+    expect(wrapper.find('.saved-filter-row .list-name').text()).toBe('已改名')
+
+    api.filters.update = vi.fn(() => new Promise((_resolve, reject) => { rejectUpdate = reject }))
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    await wrapper.get('.filter-edit-dialog [placeholder="筛选名称"]').setValue('失败后重试')
+    await wrapper.get('.filter-edit-dialog .save-button').trigger('click')
+    await flushPromises()
+    rejectUpdate?.(new Error('write failed'))
+    await flushPromises()
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(true)
+    expect(wrapper.get('.filter-edit-error').text()).toContain('保存失败')
+    expect((wrapper.get('.filter-edit-dialog [placeholder="筛选名称"]').element as HTMLInputElement).value).toBe('失败后重试')
+    expect(wrapper.find('.saved-filter-row .list-name').text()).toBe('已改名')
+
+    api.filters.update = vi.fn(async () => savedFilter({ name: '失败后重试' }))
+    await wrapper.get('.filter-edit-dialog .save-button').trigger('click')
+    await flushPromises()
+    expect(api.filters.update).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(false)
+    expect(wrapper.find('.saved-filter-row .list-name').text()).toBe('失败后重试')
+    wrapper.unmount()
+  })
+
+  it('prevents duplicate filter updates while a save is in flight', async () => {
+    const api = createApi([makeTask()], [], [savedFilter()])
+    let resolveUpdate: ((filter: SavedFilter) => void) | undefined
+    api.filters.update = vi.fn(() => new Promise((resolve) => { resolveUpdate = resolve }))
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.get('.filter-edit-dialog')
+    await dialog.get('[placeholder="筛选名称"]').setValue('保存中')
+    await dialog.get('.save-button').trigger('click')
+    await dialog.get('.save-button').trigger('click')
+    await dialog.get('.cancel-button').trigger('click')
+    expect(api.filters.update).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(true)
+
+    resolveUpdate?.(savedFilter({ name: '保存中' }))
+    await flushPromises()
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(false)
+    expect(wrapper.find('.saved-filter-row .list-name').text()).toBe('保存中')
+    wrapper.unmount()
+  })
+
+  it('keeps a legacy padded keyword untouched when only the name changes', async () => {
+    const filter = savedFilter({ name: '旧名', criteria: { status: 'active', search: ' 会议 ' } })
+    const api = createApi([makeTask({ id: 'match', title: ' 会议 纪要' }), makeTask({ id: 'other', title: '项目会议' })], [], [filter])
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.findAll('.saved-filter-row .nav-item')[0].trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('会议 纪要')
+    expect(wrapper.text()).not.toContain('项目会议')
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.get('.filter-edit-dialog')
+    expect((dialog.get('[placeholder="关键词"]').element as HTMLInputElement).value).toBe(' 会议 ')
+    await dialog.get('[placeholder="筛选名称"]').setValue('改名后的筛选')
+    await dialog.get('.save-button').trigger('click')
+    await flushPromises()
+
+    expect(api.filters.update).toHaveBeenCalledTimes(1)
+    expect(api.filters.update).toHaveBeenCalledWith('filter-1', { name: '改名后的筛选' })
+    expect(wrapper.text()).toContain('会议 纪要')
+    expect(wrapper.text()).not.toContain('项目会议')
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    expect((wrapper.get('.filter-edit-dialog [placeholder="关键词"]').element as HTMLInputElement).value).toBe(' 会议 ')
+    wrapper.unmount()
+  })
+
+  it('blocks the search shortcut while the filter edit dialog is open', async () => {
+    const api = createApi([makeTask()], [], [savedFilter()])
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    const nameInput = wrapper.get('.filter-edit-dialog [placeholder="筛选名称"]')
+    await nameInput.setValue('编辑中的草稿')
+    await nameInput.trigger('keydown', { key: 'k', ctrlKey: true })
+    await flushPromises()
+    expect(wrapper.find('.workspace-search-backdrop').exists()).toBe(false)
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(true)
+    expect((wrapper.get('.filter-edit-dialog [placeholder="筛选名称"]').element as HTMLInputElement).value).toBe('编辑中的草稿')
+
+    await wrapper.get('.filter-edit-dialog .cancel-button').trigger('click')
+    await flushPromises()
+    await wrapper.get('.quick-add input').trigger('keydown', { key: 'k', ctrlKey: true })
+    await flushPromises()
+    expect(wrapper.find('.workspace-search-backdrop').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('skips the update when the edited name only gains spaces', async () => {
+    const api = createApi([makeTask()], [], [savedFilter()])
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    await wrapper.get('.filter-edit-dialog [placeholder="筛选名称"]').setValue(' 我的筛选 ')
+    await wrapper.get('.filter-edit-dialog .save-button').trigger('click')
+    await flushPromises()
+    expect(api.filters.update).not.toHaveBeenCalled()
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(false)
+    expect(wrapper.find('.saved-filter-row .list-name').text()).toBe('我的筛选')
+    wrapper.unmount()
+  })
+
+  it('skips the update when the keyword only contains spaces over an empty search', async () => {
+    const api = createApi([makeTask()], [], [savedFilter({ criteria: { status: 'active' } })])
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    await wrapper.get('.filter-edit-dialog [placeholder="关键词"]').setValue('   ')
+    await wrapper.get('.filter-edit-dialog .save-button').trigger('click')
+    await flushPromises()
+    expect(api.filters.update).not.toHaveBeenCalled()
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('skips the update when spaces are typed over an explicit empty search', async () => {
+    const api = createApi([makeTask()], [], [savedFilter({ criteria: { status: 'active', search: '' } })])
+    window.todoApi = api
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('.saved-filter-row [aria-label="筛选操作"]').trigger('click')
+    await wrapper.findAll('.filter-menu-root [role="menuitem"]').find(item => item.text() === '编辑筛选')!.trigger('click')
+    await flushPromises()
+    await wrapper.get('.filter-edit-dialog [placeholder="关键词"]').setValue('   ')
+    await wrapper.get('.filter-edit-dialog .save-button').trigger('click')
+    await flushPromises()
+    expect(api.filters.update).not.toHaveBeenCalled()
+    expect(wrapper.find('.filter-edit-dialog').exists()).toBe(false)
+    expect((await api.filters.list())[0].criteria.search).toBe('')
+    wrapper.unmount()
   })
 })
