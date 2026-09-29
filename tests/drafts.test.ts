@@ -117,6 +117,80 @@ it('rejects a conflict confirmation if the formal task changes again', () => {
   repository.drafts.commit({ ...saved, kind: 'task', key: task.id, acceptChanges: true, expectedBaseUpdatedAt: second.updatedAt })
   expect(repository.tasks.getTask(task.id).title).toBe('我的修改')
 })
+
+it('renames a subtask through its task draft and keeps identity and other fields', () => {
+  const parent = repository.tasks.createTask({ title: '父任务', notes: '父备注' })
+  const composer = repository.drafts.put({ ...repository.drafts.get('subtask', parent.id), kind: 'subtask', key: parent.id, payload: { title: '旧标题' } })
+  const created = repository.drafts.commit({ ...composer, kind: 'subtask', key: parent.id }) as { id: string }
+  repository.tasks.updateTask(created.id, { notes: '子备注', priority: 'medium', dueDate: '2030-01-02' })
+  const before = repository.tasks.getTask(created.id)
+  const snapshot = repository.drafts.get('task', before.id)
+  const saved = repository.drafts.put({ ...snapshot, kind: 'task', key: before.id, payload: { ...taskToDraft(before), title: '新标题' } })
+  closeDatabase()
+  const updated = repository.drafts.commit({ ...saved, kind: 'task', key: before.id }) as { title: string }
+  expect(updated.title).toBe('新标题')
+  closeDatabase()
+  const after = repository.tasks.getTask(before.id)
+  expect(after.id).toBe(before.id)
+  expect(after.parentTaskId).toBe(parent.id)
+  expect(after.title).toBe('新标题')
+  expect(after.notes).toBe('子备注')
+  expect(after.priority).toBe('medium')
+  expect(after.dueDate).toBe('2030-01-02')
+  expect(after.status).toBe(before.status)
+  expect(after.sortOrder).toBe(before.sortOrder)
+  expect(repository.drafts.get('task', before.id).record).toBeNull()
+})
+
+it('keeps recurrence rules and notified reminders untouched when only the title is committed', () => {
+  const task = repository.tasks.createTask({ title: '原标题', notes: '备注', priority: 'medium', dueDate: '2030-01-05', dueTime: '09:00', reminderMinutesBefore: 15, recurrence: { frequency: 'weekly', interval: 2, weekdays: [1, 3], endDate: '2030-06-01' } })
+  repository.tasks.markReminderNotified(task.id)
+  const before = getDatabase().prepare('SELECT * FROM tasks WHERE id=?').get(task.id) as Record<string, unknown>
+  const ruleBefore = getDatabase().prepare('SELECT * FROM recurrence_rules WHERE task_id=?').get(task.id) as Record<string, unknown>
+  const snapshot = repository.drafts.get('task', task.id)
+  const saved = repository.drafts.put({ ...snapshot, kind: 'task', key: task.id, payload: { ...taskToDraft(repository.tasks.getTask(task.id)), title: '新标题' } })
+  const updated = repository.drafts.commit({ ...saved, kind: 'task', key: task.id }) as { title: string }
+  expect(updated.title).toBe('新标题')
+  const after = getDatabase().prepare('SELECT * FROM tasks WHERE id=?').get(task.id) as Record<string, unknown>
+  for (const key of Object.keys(before).filter(key => !['title', 'updated_at'].includes(key))) expect(after[key], key).toEqual(before[key])
+  expect(getDatabase().prepare('SELECT * FROM recurrence_rules WHERE task_id=?').get(task.id)).toEqual(ruleBefore)
+})
+
+it('re-arms reminders and refreshes the rule when the deadline changes', () => {
+  const task = repository.tasks.createTask({ title: '截止变化', dueDate: '2030-01-05', dueTime: '09:00', reminderMinutesBefore: 15, recurrence: { frequency: 'daily' } })
+  repository.tasks.markReminderNotified(task.id)
+  const snapshot = repository.drafts.get('task', task.id)
+  const saved = repository.drafts.put({ ...snapshot, kind: 'task', key: task.id, payload: { ...taskToDraft(repository.tasks.getTask(task.id)), dueDate: '2030-01-06' } })
+  repository.drafts.commit({ ...saved, kind: 'task', key: task.id })
+  expect((getDatabase().prepare('SELECT reminder_notified_at FROM tasks WHERE id=?').get(task.id) as { reminder_notified_at: string | null }).reminder_notified_at).toBeNull()
+  expect((getDatabase().prepare('SELECT next_due_date FROM recurrence_rules WHERE task_id=?').get(task.id) as { next_due_date: string }).next_due_date).toBe('2030-01-06')
+})
+
+it('keeps notified reminders and the rule when unrelated fields change', () => {
+  const task = repository.tasks.createTask({ title: '备注修改', dueDate: '2030-01-05', dueTime: '09:00', reminderMinutesBefore: 15, recurrence: { frequency: 'daily' } })
+  repository.tasks.markReminderNotified(task.id)
+  const ruleBefore = getDatabase().prepare('SELECT * FROM recurrence_rules WHERE task_id=?').get(task.id) as Record<string, unknown>
+  repository.tasks.updateTask(task.id, { notes: '只改备注' })
+  expect((getDatabase().prepare('SELECT reminder_notified_at FROM tasks WHERE id=?').get(task.id) as { reminder_notified_at: string | null }).reminder_notified_at).not.toBeNull()
+  expect(repository.tasks.getTask(task.id).recurrenceRuleId).toBe(task.recurrenceRuleId)
+  expect(getDatabase().prepare('SELECT * FROM recurrence_rules WHERE task_id=?').get(task.id)).toEqual(ruleBefore)
+})
+
+it('retries only the title after an external change without restoring stale fields', () => {
+  const parent = repository.tasks.createTask({ title: '父任务' })
+  const subtask = repository.tasks.createTask({ title: '子任务', parentTaskId: parent.id, notes: '原备注' })
+  const snapshot = repository.drafts.get('task', subtask.id)
+  const saved = repository.drafts.put({ ...snapshot, kind: 'task', key: subtask.id, payload: { ...taskToDraft(subtask), title: '编辑标题' } })
+  const latest = repository.tasks.updateTask(subtask.id, { notes: '他处备注' })
+  expect(() => repository.drafts.commit({ ...saved, kind: 'task', key: subtask.id })).toThrow('已变化')
+  expect(repository.tasks.getTask(subtask.id).notes).toBe('他处备注')
+  const rebuilt = repository.drafts.put({ ...repository.drafts.get('task', subtask.id), kind: 'task', key: subtask.id, payload: { ...taskToDraft(repository.tasks.getTask(subtask.id)), title: '编辑标题' } })
+  repository.drafts.commit({ ...rebuilt, kind: 'task', key: subtask.id, acceptChanges: true, expectedBaseUpdatedAt: latest.updatedAt })
+  const after = repository.tasks.getTask(subtask.id)
+  expect(after.title).toBe('编辑标题')
+  expect(after.notes).toBe('他处备注')
+  expect(after.parentTaskId).toBe(parent.id)
+})
 beforeEach(() => { useDatabaseForTests(path.join(directory, `${crypto.randomUUID()}.sqlite`)); repository = new Repository() })
 afterAll(() => { closeDatabase(); fs.rmSync(directory, { recursive: true, force: true }) })
 

@@ -8,8 +8,9 @@ import TaskTagsField from './TaskTagsField.vue'
 import TaskSubtasks from './TaskSubtasks.vue'
 import TaskSources from './TaskSources.vue'
 const { trapDialogFocus, pendingDelete, sortedLists, toggleTask } = useWorkspaceContext()
-const { detailLoading, detailOpen, detailDraft, tagQuery, newSubtaskTitle, activeTask, subtasks, selectedTags, visibleDetailTags, canCreateDetailTag, closeDetail, discardTaskDraft, createTagFromDetail, submitSubtask, subtaskBusy, scheduleSave, flushOnBlur, saveState, saveError, validation, recovered, applyRecovered, resolveConflict } = useTaskDetails()
+const { detailLoading, detailOpen, detailDraft, tagQuery, newSubtaskTitle, activeTask, subtasks, selectedTags, visibleDetailTags, canCreateDetailTag, selectTask, closeDetail, discardTaskDraft, createTagFromDetail, submitSubtask, subtaskBusy, editingSubtaskId, editingSubtaskTitle, subtaskEditBusy, subtaskEditError, subtaskEditBlocked, startSubtaskEdit, submitSubtaskTitle, submitSubtaskRetry, cancelSubtaskEdit, scheduleSave, flushOnBlur, saveState, saveError, validation, recovered, applyRecovered, resolveConflict } = useTaskDetails()
 const expanded = ref(false)
+function updateSubtaskEditTitle(value: string) { editingSubtaskTitle.value = value }
 const availableWidth = ref(676)
 let observer: ResizeObserver | undefined
 function measure() { availableWidth.value = document.querySelector('.main-content')?.getBoundingClientRect().width ?? window.innerWidth - 224 }
@@ -40,7 +41,7 @@ watch(detailOpen, value => { if (!value) expanded.value = false; else void nextT
               <label class="list-field"><span>清单</span><SelectField v-model="detailDraft.listId" aria-label="任务清单" :options="[{ value: null, label: '收集箱' }, ...sortedLists.map(list => ({ value: list.id, label: list.name }))]" @update:model-value="scheduleSave(0)" /></label>
               <TaskTagsField v-model="detailDraft.tagIds" v-model:query="tagQuery" :tags="selectedTags" :options="visibleDetailTags" :can-create="canCreateDetailTag" @change="scheduleSave(0)" @create="createTagFromDetail" />
             </section>
-            <TaskSubtasks v-model="newSubtaskTitle" :tasks="subtasks" :busy="subtaskBusy" @add="submitSubtask" @toggle="toggleTask" />
+            <TaskSubtasks v-model="newSubtaskTitle" :tasks="subtasks" :busy="subtaskBusy" :editing-id="editingSubtaskId" :editing-title="editingSubtaskTitle" :editing-busy="subtaskEditBusy" :editing-error="subtaskEditError" :editing-blocked="subtaskEditBlocked" @add="submitSubtask" @toggle="toggleTask" @edit="startSubtaskEdit" @open-detail="selectTask" @update:editing-title="updateSubtaskEditTitle" @save="submitSubtaskTitle" @cancel="cancelSubtaskEdit" @retry="submitSubtaskRetry" />
             <section class="editor-section editor-notes"><h3><label for="task-editor-notes">备注</label></h3><textarea id="task-editor-notes" v-model="detailDraft.notes" rows="5" placeholder="补充背景、思路或参考信息…" @blur="flushOnBlur"></textarea></section>
             <section class="editor-section editor-repeat"><label><span>重复</span><SelectField v-model="detailDraft.recurrence" aria-label="任务重复频率" :options="[{ value: 'none', label: '不重复' }, { value: 'daily', label: '每天' }, { value: 'weekly', label: '每周' }, { value: 'monthly', label: '每月' }]" @update:model-value="scheduleSave(0)" /></label><label v-if="detailDraft.recurrence !== 'none'"><span>结束重复</span><input v-model="detailDraft.recurrenceEnd" type="date" @change="scheduleSave(0)" /></label></section>
             <TaskSources :task-id="activeTask.id" />
