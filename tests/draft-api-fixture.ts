@@ -28,6 +28,8 @@ export function installDraftApi(api: TodoApi): TodoApi {
       if (snapshot.revision !== input.revision) throw new Error('草稿已变化')
       const record = snapshot.record
       if (!record) throw new Error('没有草稿')
+      if (input.acceptChanges === true && input.expectedBaseUpdatedAt !== snapshot.baseUpdatedAt) throw new Error('正式记录已变化，请重新检查后确认')
+      if (snapshot.baseUpdatedAt !== record.baseUpdatedAt && input.acceptChanges !== true) throw new Error('正式记录已变化，请确认后重新保存')
       let result: unknown
       if (record.kind === 'task') result = await api.tasks.update(record.key, draftToTask(record.payload))
       else if (record.kind === 'review') result = await api.flow.saveReview(record.payload)

@@ -89,8 +89,16 @@ export class TaskRepository {
     if (!merged.title)
       throw new Error('任务标题不能为空')
     const db = getDatabase()
-    db.transaction(() => { db.prepare('UPDATE tasks SET title=?,list_id=?,due_date=?,due_time=?,reminder_minutes_before=?,priority=?,notes=?,sort_order=?,is_pinned=?,parent_task_id=?,updated_at=?,reminder_notified_at=NULL WHERE id=?').run(merged.title, merged.listId ?? null, merged.dueDate ?? null, merged.dueTime ?? null, merged.reminderMinutesBefore ?? null, merged.priority, merged.notes ?? '', merged.sortOrder ?? 0, merged.isPinned ? 1 : 0, merged.parentTaskId ?? null, new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString(), taskId); if (input.sortOrder === undefined && (input.priority !== undefined && input.priority !== current.priority || input.isPinned !== undefined && input.isPinned !== current.isPinned))
-      db.prepare('UPDATE tasks SET sort_order=(SELECT COALESCE(MAX(sort_order),-1)+1 FROM tasks AS grouped WHERE grouped.id<>tasks.id AND grouped.deleted_at IS NULL AND grouped.parent_task_id IS NULL AND grouped.is_pinned=tasks.is_pinned AND grouped.priority=tasks.priority) WHERE id=?').run(taskId); if (input.recurrence !== undefined) {
+    const reminderChanged = merged.dueDate !== current.dueDate || merged.dueTime !== current.dueTime || merged.reminderMinutesBefore !== current.reminderMinutesBefore
+    const rule = current.recurrence
+    const keepRule = input.recurrence !== undefined && input.recurrence !== null && rule != null && rule.frequency === input.recurrence.frequency
+      && (rule.interval ?? 1) === (input.recurrence.interval ?? 1)
+      && JSON.stringify(rule.weekdays ?? []) === JSON.stringify(input.recurrence.weekdays ?? [])
+      && (rule.endDate ?? null) === (input.recurrence.endDate ?? null)
+      && merged.dueDate === current.dueDate
+    db.transaction(() => { db.prepare('UPDATE tasks SET title=?,list_id=?,due_date=?,due_time=?,reminder_minutes_before=?,priority=?,notes=?,sort_order=?,is_pinned=?,parent_task_id=?,updated_at=? WHERE id=?').run(merged.title, merged.listId ?? null, merged.dueDate ?? null, merged.dueTime ?? null, merged.reminderMinutesBefore ?? null, merged.priority, merged.notes ?? '', merged.sortOrder ?? 0, merged.isPinned ? 1 : 0, merged.parentTaskId ?? null, new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString(), taskId); if (reminderChanged)
+      db.prepare('UPDATE tasks SET reminder_notified_at=NULL WHERE id=?').run(taskId); if (input.sortOrder === undefined && (input.priority !== undefined && input.priority !== current.priority || input.isPinned !== undefined && input.isPinned !== current.isPinned))
+      db.prepare('UPDATE tasks SET sort_order=(SELECT COALESCE(MAX(sort_order),-1)+1 FROM tasks AS grouped WHERE grouped.id<>tasks.id AND grouped.deleted_at IS NULL AND grouped.parent_task_id IS NULL AND grouped.is_pinned=tasks.is_pinned AND grouped.priority=tasks.priority) WHERE id=?').run(taskId); if (input.recurrence !== undefined && !keepRule) {
       db.prepare('DELETE FROM recurrence_rules WHERE task_id=?').run(taskId)
       db.prepare('UPDATE tasks SET recurrence_rule_id=NULL WHERE id=?').run(taskId)
       if (input.recurrence) {
