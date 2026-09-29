@@ -7,7 +7,7 @@ import { inPlan, isOverdue, localDay, planEnd, planFor } from '../../shared/plan
 import { preferencesKey } from './preferences-context'
 import { navigationKey, type WorkspaceNavigation } from './navigation'
 import { matchesTaskFilter } from '../../shared/task-filter'
-import type { SavedFilter, Tag, Task, TaskList, TaskPriority } from '../../shared/contracts'
+import type { SavedFilter, Tag, Task, TaskFilterCriteria, TaskList, TaskPriority, UpdateSavedFilterInput } from '../../shared/contracts'
 import { useWorkspaceSearch } from './useWorkspaceSearch'
 import { useDetails, detailsKey } from './useDetails'
 import { useQuickTask } from './useQuickTask'
@@ -81,15 +81,45 @@ export function useWorkspace() {
   const { newTagName, managedTagDrafts, pendingTagDelete, tagsSaving, adoptTags, createManagedTag, updateManagedTag, deleteManagedTag } = useTagManagement(tags, tasks, notify)
   const filterComposerOpen = ref(false)
   const newFilterName = ref('')
+  const newFilterKeyword = ref('')
   const newFilterStatus = ref<'active' | 'completed' | 'all'>('active')
   const newFilterListId = ref<string>('any')
   const newFilterPriority = ref<TaskPriority | 'any'>('any')
   const newFilterTagId = ref('any')
   const newFilterDue = ref<'any' | 'today' | 'overdue' | 'next7' | 'none'>('any')
+  let filterComposerSeeded = false
+  function toggleFilterComposer() {
+    if (!filterComposerOpen.value && !filterComposerSeeded) {
+      newFilterKeyword.value = search.value
+      filterComposerSeeded = true
+    }
+    filterComposerOpen.value = !filterComposerOpen.value
+  }
+  function resetFilterComposer() {
+    newFilterName.value = ''
+    newFilterKeyword.value = ''
+    newFilterStatus.value = 'active'
+    newFilterListId.value = 'any'
+    newFilterPriority.value = 'any'
+    newFilterTagId.value = 'any'
+    newFilterDue.value = 'any'
+    filterComposerSeeded = false
+  }
   const listComposerOpen = ref(false)
   const newListName = ref('')
   const openListMenuId = ref<string | null>(null)
   const openTaskMenuId = ref<string | null>(null)
+  const openFilterMenuId = ref<string | null>(null)
+  const editingFilter = ref<SavedFilter | null>(null)
+  const filterEditName = ref('')
+  const filterEditKeyword = ref('')
+  const filterEditStatus = ref<'active' | 'completed' | 'all'>('all')
+  const filterEditListId = ref<string>('any')
+  const filterEditPriorities = ref<TaskPriority[]>([])
+  const filterEditTagIds = ref<string[]>([])
+  const filterEditDue = ref<'any' | 'today' | 'overdue' | 'next7' | 'none'>('any')
+  const filterEditError = ref('')
+  const filterEditBusy = ref(false)
   const toast = ref('')
   const toastAction = ref<{
     label: string
@@ -332,15 +362,97 @@ export function useWorkspace() {
       notify('快速捕获打开失败，请重试')
     }
   }
-  function closeMenus() { openListMenuId.value = null; openTaskMenuId.value = null; }
-  function toggleListMenu(listId: string) { openTaskMenuId.value = null; openListMenuId.value = openListMenuId.value === listId ? null : listId; }
-  function toggleTaskMenu(taskId: string) { openListMenuId.value = null; openTaskMenuId.value = openTaskMenuId.value === taskId ? null : taskId; }
+  function closeMenus() { openListMenuId.value = null; openTaskMenuId.value = null; openFilterMenuId.value = null; }
+  function toggleListMenu(listId: string) { openTaskMenuId.value = null; openFilterMenuId.value = null; openListMenuId.value = openListMenuId.value === listId ? null : listId; }
+  function toggleTaskMenu(taskId: string) { openListMenuId.value = null; openFilterMenuId.value = null; openTaskMenuId.value = openTaskMenuId.value === taskId ? null : taskId; }
+  function toggleFilterMenu(filterId: string) { openListMenuId.value = null; openTaskMenuId.value = null; openFilterMenuId.value = openFilterMenuId.value === filterId ? null : filterId; }
   function requestListDelete(list: TaskList) { closeMenus(); listDeletePolicy.value = 'keep'; pendingListDelete.value = list; }
   async function createFilter() { const name = newFilterName.value.trim(); if (!name || !hasApi())
-    return; const filter = await window.todoApi.filters.create({ name, criteria: { status: newFilterStatus.value, listId: newFilterListId.value === 'any' ? undefined : newFilterListId.value === 'inbox' ? null : newFilterListId.value, priorities: newFilterPriority.value === 'any' ? undefined : [newFilterPriority.value], tagIds: newFilterTagId.value === 'any' ? undefined : [newFilterTagId.value], due: newFilterDue.value, search: search.value.trim() || undefined }, sortOrder: savedFilters.value.length }); savedFilters.value.push(filter); newFilterName.value = ''; filterComposerOpen.value = false; activeView.value = `filter:${filter.id}`; notify('筛选已保存'); }
+    return; try {
+    const filter = await window.todoApi.filters.create({ name, criteria: { status: newFilterStatus.value, listId: newFilterListId.value === 'any' ? undefined : newFilterListId.value === 'inbox' ? null : newFilterListId.value, priorities: newFilterPriority.value === 'any' ? undefined : [newFilterPriority.value], tagIds: newFilterTagId.value === 'any' ? undefined : [newFilterTagId.value], due: newFilterDue.value, search: newFilterKeyword.value.trim() || undefined }, sortOrder: savedFilters.value.length }); savedFilters.value.push(filter); resetFilterComposer(); filterComposerOpen.value = false; activeView.value = `filter:${filter.id}`; notify('筛选已保存');
+  }
+  catch {
+    notify('创建筛选失败，请重试')
+  } }
   async function removeFilter(filter: SavedFilter) { if (hasApi())
     await window.todoApi.filters.remove(filter.id); savedFilters.value = savedFilters.value.filter(item => item.id !== filter.id); if (activeView.value === `filter:${filter.id}`)
     activeView.value = 'today'; notify('筛选已删除'); }
+  function openFilterEdit(filter: SavedFilter) {
+    closeMenus()
+    editingFilter.value = JSON.parse(JSON.stringify(filter)) as SavedFilter
+    const criteria = filter.criteria
+    filterEditName.value = filter.name
+    filterEditKeyword.value = criteria.search ?? ''
+    filterEditStatus.value = criteria.status ?? 'all'
+    filterEditListId.value = criteria.listId === undefined ? 'any' : criteria.listId === null ? 'inbox' : criteria.listId
+    filterEditPriorities.value = [...(criteria.priorities ?? [])]
+    filterEditTagIds.value = [...(criteria.tagIds ?? [])]
+    filterEditDue.value = criteria.due ?? 'any'
+    filterEditError.value = ''
+    filterEditBusy.value = false
+  }
+  function cancelFilterEdit() {
+    if (filterEditBusy.value)
+      return
+    editingFilter.value = null
+    filterEditError.value = ''
+  }
+  function sameIdSet(left: readonly string[], right: readonly string[]) {
+    return left.length === right.length && [...left].sort().join(' ') === [...right].sort().join(' ')
+  }
+  async function saveFilterEdit() {
+    const source = editingFilter.value
+    if (!source || filterEditBusy.value || !hasApi())
+      return
+    const name = filterEditName.value.trim()
+    if (!name) {
+      filterEditError.value = '筛选名称不能为空'
+      return
+    }
+    const criteria = source.criteria
+    const changes: Partial<TaskFilterCriteria> = {}
+    const status = filterEditStatus.value
+    if (status !== (criteria.status ?? 'all'))
+      changes.status = status
+    const sourceListLabel = criteria.listId === undefined ? 'any' : criteria.listId === null ? 'inbox' : criteria.listId
+    if (filterEditListId.value !== sourceListLabel)
+      changes.listId = filterEditListId.value === 'any' ? undefined : filterEditListId.value === 'inbox' ? null : filterEditListId.value
+    const rawKeyword = filterEditKeyword.value
+    const keywordTarget = rawKeyword.trim() || undefined
+    const keywordOriginal = criteria.search || undefined
+    if (rawKeyword !== (criteria.search ?? '') && keywordTarget !== keywordOriginal)
+      changes.search = keywordTarget
+    const due = filterEditDue.value
+    if (due !== (criteria.due ?? 'any'))
+      changes.due = due
+    if (!sameIdSet(filterEditPriorities.value, criteria.priorities ?? []))
+      changes.priorities = filterEditPriorities.value.length ? [...filterEditPriorities.value] : undefined
+    if (!sameIdSet(filterEditTagIds.value, criteria.tagIds ?? []))
+      changes.tagIds = filterEditTagIds.value.length ? [...filterEditTagIds.value] : undefined
+    const input: UpdateSavedFilterInput = {}
+    if (filterEditName.value !== source.name && name !== source.name)
+      input.name = name
+    if (Object.keys(changes).length)
+      input.criteria = { ...criteria, ...changes }
+    if (!Object.keys(input).length) {
+      editingFilter.value = null
+      return
+    }
+    filterEditBusy.value = true
+    filterEditError.value = ''
+    try {
+      const updated = await window.todoApi.filters.update(source.id, input)
+      savedFilters.value = savedFilters.value.map(item => item.id === updated.id ? updated : item)
+      editingFilter.value = null
+      notify('筛选已更新')
+    }
+    catch {
+      filterEditError.value = '保存失败，请重试'
+    }
+    finally {
+      filterEditBusy.value = false
+    }
+  }
   async function runToastAction() { const action = toastAction.value; if (!action)
     return; toastAction.value = null; await action.run(); }
   function isTypingTarget(target: EventTarget | null) { const element = target as HTMLElement | null; return Boolean(element?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(element?.tagName || '')); }
@@ -348,7 +460,7 @@ export function useWorkspace() {
     if (event.defaultPrevented) return
     if (event.ctrlKey && event.key.toLowerCase() === 'k') {
       event.preventDefault()
-      if (!settingsOpen.value && !detailOpen.value && !pendingDelete.value && !pendingListDelete.value && !pendingTagDelete.value && !shortcutsOpen.value && !arrangement.state.task) { closeMenus(); workspaceSearch.show() }
+      if (!settingsOpen.value && !detailOpen.value && !editingFilter.value && !pendingDelete.value && !pendingListDelete.value && !pendingTagDelete.value && !shortcutsOpen.value && !arrangement.state.task) { closeMenus(); workspaceSearch.show() }
       return
     }
     if (workspaceSearch.open.value) return
@@ -362,7 +474,7 @@ export function useWorkspace() {
     if (event.key === '?')
       shortcutsOpen.value = true
     if (event.key === 'Escape') {
-      if (openTaskMenuId.value) { closeMenus(); return }
+      if (openTaskMenuId.value || openFilterMenuId.value) { closeMenus(); return }
       closeMenus()
       if (shortcutsOpen.value)
         shortcutsOpen.value = false
@@ -372,6 +484,8 @@ export function useWorkspace() {
         pendingListDelete.value = null
       else if (pendingTagDelete.value)
         pendingTagDelete.value = null
+      else if (editingFilter.value)
+        cancelFilterEdit()
       else if (settingsOpen.value)
         settingsOpen.value = false
       else
@@ -411,7 +525,7 @@ export function useWorkspace() {
   let removeDataListener: (() => void) | undefined
   watch(drafts.epoch, () => { detailOpen.value = false; selectedTaskId.value = null; detailDraft.value = null; adoptTags([]); pendingTagDelete.value = null; newTagName.value = ''; void loadData(); })
   let removeFlowListener: (() => void) | undefined
-  watch([pendingTagDelete, pendingDelete, pendingListDelete, settingsOpen, shortcutsOpen, detailOpen], async (values, previous) => {
+  watch([pendingTagDelete, pendingDelete, pendingListDelete, settingsOpen, shortcutsOpen, detailOpen, editingFilter], async (values, previous) => {
     const isOpen = values.some(Boolean)
     const wasOpen = previous.some(Boolean)
     if (isOpen && !wasOpen)
@@ -438,5 +552,5 @@ export function useWorkspace() {
     removeFlowListener = window.todoApi.desktop.onOpenFlow(() => { activeView.value = 'flow'; settingsOpen.value = false; })
   } })
   onBeforeUnmount(() => { window.removeEventListener('keydown', handleShortcut); removeDesktopListener?.(); removeFlowListener?.(); removeDataListener?.(); window.clearTimeout(toastTimer); })
-  return { quickBusy, quickReady, quickContextHint, workspaceSearch, arrangement, quickPlanHint, loadData, totalStatus, totalDeadline, unplannedOnly, dueToday, pastPlanned, drafts, closeMenus, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, listComposerOpen, newListName, openListMenuId, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon, settings, settingsSaving, desktopStatus, exportBackup, importBackup, saveSettings, shortcutsOpen, newTagName, managedTagDrafts, pendingTagDelete, tagsSaving, createManagedTag, updateManagedTag, deleteManagedTag, trapDialogFocus, search, pendingDelete, selectedTaskId, detailOpen, detailDraft, activeTask, closeDetail, toggleTask, quickTitle, quickInput, groupBy, temporaryTagId, loading, todayIso, selectTask, viewTitle, viewHint, taskReorderEnabled, draggedTaskId, endTaskDrag, dropTaskInZone, onWeekDrop, filteredTasks, pinnedTasks, groupedRegularTasks, completedTodayCount, temporaryTag, emptyState, priorityCode, priorityClass, createTask, weekDates, tasksForDate, lists, openTaskMenuId, taskDropTargetId, setTaskPinned, setTaskPriority, startTaskDrag, dropTaskBefore, dateLabel, priorityLabel, filterByTag, toggleTaskMenu, pendingListDelete, listDeletePolicy, toast, toastAction, removeTask, confirmListDelete, runToastAction }
+  return { quickBusy, quickReady, quickContextHint, workspaceSearch, arrangement, quickPlanHint, loadData, totalStatus, totalDeadline, unplannedOnly, dueToday, pastPlanned, drafts, closeMenus, settingsOpen, tasks, tags, savedFilters, activeView, filterComposerOpen, newFilterName, newFilterKeyword, newFilterStatus, newFilterListId, newFilterPriority, newFilterTagId, newFilterDue, toggleFilterComposer, listComposerOpen, newListName, openListMenuId, openFilterMenuId, toggleFilterMenu, editingFilter, filterEditName, filterEditKeyword, filterEditStatus, filterEditListId, filterEditPriorities, filterEditTagIds, filterEditDue, filterEditError, filterEditBusy, openFilterEdit, cancelFilterEdit, saveFilterEdit, listDropTargetId, setListPinned, startListDrag, endListDrag, dropListBefore, isTodayTask, sortedLists, pinnedLists, regularLists, completedCount, pendingCount, listCount, addList, focusQuickAdd, toggleListMenu, requestListDelete, createFilter, removeFilter, rumoFlowIcon, settings, settingsSaving, desktopStatus, exportBackup, importBackup, saveSettings, shortcutsOpen, newTagName, managedTagDrafts, pendingTagDelete, tagsSaving, createManagedTag, updateManagedTag, deleteManagedTag, trapDialogFocus, search, pendingDelete, selectedTaskId, detailOpen, detailDraft, activeTask, closeDetail, toggleTask, quickTitle, quickInput, groupBy, temporaryTagId, loading, todayIso, selectTask, viewTitle, viewHint, taskReorderEnabled, draggedTaskId, endTaskDrag, dropTaskInZone, onWeekDrop, filteredTasks, pinnedTasks, groupedRegularTasks, completedTodayCount, temporaryTag, emptyState, priorityCode, priorityClass, createTask, weekDates, tasksForDate, lists, openTaskMenuId, taskDropTargetId, setTaskPinned, setTaskPriority, startTaskDrag, dropTaskBefore, dateLabel, priorityLabel, filterByTag, toggleTaskMenu, pendingListDelete, listDeletePolicy, toast, toastAction, removeTask, confirmListDelete, runToastAction }
 }

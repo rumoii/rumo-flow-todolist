@@ -236,6 +236,36 @@ describe('Repository with an isolated SQLite database', () => {
     expect(backup.taskTags).toEqual([{ taskId: task.id, tagId: tag.id }])
   })
 
+  it('updates saved-filter name, multi-value criteria and keyword and keeps the rest on reread', () => {
+    const repository = new Repository()
+    const tagA = repository.organization.createTag({ name: '紧急', color: '#ff5d5d' })
+    const tagB = repository.organization.createTag({ name: '复盘' })
+    const list = repository.organization.createList({ name: '工作', color: '#856AF9' })
+    const filter = repository.organization.createSavedFilter({ name: '  旧筛选  ', criteria: { status: 'active', listId: list.id, due: 'today', search: '旧词' }, sortOrder: 4 })
+    expect(filter.name).toBe('旧筛选')
+
+    const updated = repository.organization.updateSavedFilter(filter.id, {
+      name: '新筛选',
+      criteria: { status: 'active', listId: list.id, due: 'today', search: '新词', priorities: ['high', 'medium'], tagIds: [tagA.id, tagB.id] },
+    })
+    expect(updated.id).toBe(filter.id)
+    expect(updated.name).toBe('新筛选')
+    expect(updated.sortOrder).toBe(4)
+    expect(updated.criteria).toEqual({ status: 'active', listId: list.id, due: 'today', search: '新词', priorities: ['high', 'medium'], tagIds: [tagA.id, tagB.id] })
+
+    const renamed = repository.organization.updateSavedFilter(filter.id, { name: '只改名' })
+    expect(renamed.criteria).toEqual(updated.criteria)
+    expect(renamed.sortOrder).toBe(4)
+
+    closeDatabase()
+    const reloaded = new Repository().organization.listSavedFilters().find((item) => item.id === filter.id)!
+    expect(reloaded.id).toBe(filter.id)
+    expect(reloaded.name).toBe('只改名')
+    expect(reloaded.sortOrder).toBe(4)
+    expect(reloaded.createdAt).toBe(filter.createdAt)
+    expect(reloaded.criteria).toEqual(updated.criteria)
+  })
+
   it('soft deletes and restores a task subtree', () => {
     const repository = new Repository()
     const parent = repository.tasks.createTask({ title: '父任务' })
